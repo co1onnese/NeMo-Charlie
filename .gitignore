@@ -35,6 +35,7 @@ sft-env/
 data/raw_xml/*.xml
 data/jsonl/*.jsonl
 data/hf_datasets/
+data/nemo/
 data/price_cache/
 !data/samples/
 
@@ -44,6 +45,7 @@ checkpoints/
 *.safetensors
 *.pt
 *.pth
+*.nemo
 
 # Results and logs
 results/

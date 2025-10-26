@@ -163,6 +163,7 @@ def main():
     parser.add_argument("--input_dir", default=None, help="Directory with XML files (default from .env)")
     parser.add_argument("--output_file", default=None, help="Output NDJSON (jsonl) (default from .env)")
     parser.add_argument("--validate", action="store_true", default=True, help="Validate XML structure")
+    parser.add_argument("--keep_errors", action="store_true", default=False, help="Keep records with action='error'")
     args = parser.parse_args()
 
     # Get defaults from environment
@@ -186,11 +187,12 @@ def main():
     
     total = 0
     errors = 0
-    
+    skipped_errors = 0
+
     with open(out_file, "w", encoding="utf-8") as fo:
         for path in files:
             logger.info(f"Processing: {os.path.basename(path)}")
-            
+
             # Validate XML structure if requested
             if args.validate:
                 try:
@@ -203,17 +205,24 @@ def main():
                     logger.error(f"Cannot read {path}: {e}")
                     errors += 1
                     continue
-            
+
             recs = parse_file(path)
             for i, r in enumerate(recs):
                 # ensure minimal fields
                 r["ticker"] = r.get("ticker") or None
                 r["as_of_date"] = normalize_date(r.get("as_of_date")) or iso_date_or_none(r.get("as_of_date"))
-                
+
                 # Normalize action
                 if r.get("action"):
                     r["action"] = normalize_action(r["action"]) or r["action"]
-                
+
+                # Filter out error records unless --keep_errors flag is set
+                if r.get("action") == "error" and not args.keep_errors:
+                    skipped_errors += 1
+                    if skipped_errors <= 5:  # Log first 5
+                        logger.warning(f"Skipping error record: {r.get('ticker')} on {r.get('as_of_date')} (action='error')")
+                    continue
+
                 # construct instruction/input/output if missing
                 instr = r.get("instruction") or "Given the market snapshot, produce reasoning, support and action."
                 inp_parts = []
@@ -242,7 +251,10 @@ def main():
     logger.info("=" * 80)
     logger.info(f"Conversion complete!")
     logger.info(f"Wrote {total} records to {out_file}")
-    logger.info(f"Errors: {errors}")
+    if skipped_errors > 0:
+        logger.info(f"Skipped {skipped_errors} records with action='error' (API failures)")
+        logger.info(f"  (Use --keep_errors flag to include these records)")
+    logger.info(f"Parse errors: {errors}")
     logger.info("=" * 80)
 
 

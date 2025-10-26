@@ -9,10 +9,18 @@
    cp /path/to/your/stock-thesis-files/*.xml /opt/SFT-Charlie/data/raw_xml/
    ```
 
-2. **Convert XML to JSONL** (works on CPU):
+2. **Convert XML → JSONL and export NeMo dataset** (works on CPU):
    ```bash
    cd /opt/SFT-Charlie
    python3 src/parsers/xml_to_jsonl.py
+   python3 src/data/convert_dataset.py \
+     --jsonl data/jsonl/all.jsonl \
+     --out_dir data/hf_datasets/sft_dataset
+   python3 src/data/export_nemo_dataset.py \
+     --dataset_dir data/hf_datasets/sft_dataset \
+     --output_dir data/nemo/sft_dataset \
+     --tokenizer deepseek-ai/DeepSeek-V3.2-Exp \
+     --tokenizer_out data/nemo/tokenizer
    ```
    
    Expected output: `data/jsonl/all.jsonl` with ~10,960 records
@@ -56,40 +64,41 @@
    CPU_ONLY_MODE=false
    ```
 
-4. **Run Full Pipeline**:
+4. **Run Full Pipeline (NeMo)**:
    ```bash
    bash scripts/run_full_pipeline.sh
    ```
-   
-   **OR step-by-step:**
-   
+
+   **Or step-by-step:**
+
    ```bash
-   # Step 1: Create HF Dataset
-   python3 src/data/convert_dataset.py \
-     --jsonl data/jsonl/all.jsonl \
-     --out_dir data/hf_datasets/sft_dataset
-   
-   # Step 2: Tokenize
-   python3 src/data/tokenize_and_shard.py \
-     --dataset_dir data/hf_datasets/sft_dataset
-   
-   # Step 3: Smoke Test (10 steps)
-   python3 src/train/train_sft.py \
-     --config configs/sft_config.yaml \
-     --smoke_test
-   
-   # Step 4: Full Training
-   python3 src/train/train_sft.py \
-     --config configs/sft_config.yaml
-   
-   # Step 5: Evaluate
-   python3 src/eval/evaluate_sft.py \
-     --model_dir checkpoints/sft-deepseek-v3.2exp-longctx \
-     --out results/eval_results.csv
-   
-   # Step 6: Backtest
+   # 1. Export NeMo dataset (if not already done)
+   python3 src/data/export_nemo_dataset.py \
+     --dataset_dir data/hf_datasets/sft_dataset \
+     --output_dir data/nemo/sft_dataset \
+     --tokenizer deepseek-ai/DeepSeek-V3.2-Exp \
+     --tokenizer_out data/nemo/tokenizer
+
+   # 2. Smoke test training (10 steps)
+   python3 src/train/train_nemo.py \
+     --config configs/nemo/finetune.yaml \
+     --output checkpoints/nemo_runs/smoke \
+     --smoke-test
+
+   # 3. Full training
+   python3 src/train/train_nemo.py \
+     --config configs/nemo/finetune.yaml \
+     --output checkpoints/nemo_runs/main
+
+   # 4. Evaluate (NeMo)
+   python3 src/eval/evaluate_nemo.py \
+     --model checkpoints/nemo_runs/main/deepseek_v3_finetune.nemo \
+     --dataset data/nemo/sft_dataset \
+     --results results/eval_results.csv
+
+   # 5. Backtest using NeMo results
    python3 src/backtest/trading_backtest.py \
-     --eval_csv results/eval_results.csv \
+     --eval_jsonl results/eval_results.csv \
      --config configs/backtest_config.yaml \
      --out backtests/baseline.csv
    ```

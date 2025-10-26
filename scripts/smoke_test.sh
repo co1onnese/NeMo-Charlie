@@ -88,7 +88,7 @@ echo ""
 echo "Test 5: Tokenization..."
 if [ -d "data/hf_datasets/smoke_test_dataset" ]; then
     echo "  Note: Tokenization requires model download, skipping in smoke test"
-    echo "  ⊘ Run manually: python3 src/data/tokenize_and_shard.py --dataset_dir data/hf_datasets/smoke_test_dataset"
+    echo "  ⊘ Run manually: python3 src/data/export_nemo_dataset.py --dataset_dir data/hf_datasets/smoke_test_dataset --output_dir data/nemo/smoke_test"
 else
     echo "  ⊘ Skipping - no dataset"
 fi
@@ -109,5 +109,5 @@ echo "Next steps:"
 echo "1. Copy your XML files to data/raw_xml/"
 echo "2. Run: python3 src/parsers/xml_to_jsonl.py"
 echo "3. Run: python3 src/data/convert_dataset.py"
-echo "4. On GPU server: python3 src/train/train_sft.py --config configs/sft_config.yaml"
+echo "4. On GPU server: python3 src/train/train_nemo.py --config configs/nemo/finetune.yaml --smoke-test"
 echo ""

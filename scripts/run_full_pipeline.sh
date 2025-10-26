@@ -81,13 +81,14 @@ if [ "$SKIP_DATA" = false ]; then
         --test_start ${TEST_START_DATE:-2025-01-01} \
         --validation_days ${VALIDATION_DAYS:-30}
     
-    # 1.3: Tokenization
+    # 1.3: Export NeMo dataset
     echo ""
-    echo "1.3: Tokenizing dataset..."
-    python3 src/data/tokenize_and_shard.py \
+    echo "1.3: Exporting NeMo dataset..."
+    python3 src/data/export_nemo_dataset.py \
         --dataset_dir ${HF_DATASET_DIR:-data/hf_datasets/sft_dataset} \
-        --tokenizer ${BASE_MODEL:-deepseek-ai/DeepSeek-V3.2-Exp} \
-        --max_length ${MAX_LENGTH:-2048}
+        --output_dir ${NEMO_DATASET_DIR:-data/nemo/sft_dataset} \
+        --template ${NEMO_TEMPLATE:-chatml} \
+        --include_metadata
     
     echo ""
     echo "✓ Data preparation complete"
@@ -101,20 +102,38 @@ if [ "$SKIP_TRAIN" = false ]; then
     echo "========================================="
     echo "Step 2: SFT Training"
     echo "========================================="
-    
-    CONFIG_FILE="configs/sft_config.yaml"
-    
-    if [ "$SMOKE_TEST" = true ]; then
-        echo "Running smoke test (10 steps)..."
-        python3 src/train/train_sft.py \
-            --config $CONFIG_FILE \
-            --smoke_test
+
+    if [ "${TRAIN_BACKEND:-nemo}" = "nemo" ]; then
+        CONFIG_FILE="configs/nemo/finetune.yaml"
+        OUTPUT_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/latest}
+        mkdir -p "$(dirname "$OUTPUT_DIR")"
+
+        if [ "$SMOKE_TEST" = true ]; then
+            echo "Running NeMo smoke test..."
+            python3 src/train/train_nemo.py \
+                --config "$CONFIG_FILE" \
+                --output "$OUTPUT_DIR" \
+                --smoke-test
+        else
+            echo "Running NeMo full training via launcher..."
+        python3 src/train/train_nemo.py \
+                --config "$CONFIG_FILE" \
+                --output "$OUTPUT_DIR"
+        fi
     else
-        echo "Running full training..."
-        python3 src/train/train_sft.py \
-            --config $CONFIG_FILE
+        CONFIG_FILE="configs/sft_config.yaml"
+        if [ "$SMOKE_TEST" = true ]; then
+            echo "Running HF smoke test (legacy)..."
+            python3 src/train/train_sft.py \
+                --config "$CONFIG_FILE" \
+                --smoke_test
+        else
+            echo "Running HF full training (legacy)..."
+            python3 src/train/train_sft.py \
+                --config "$CONFIG_FILE"
+        fi
     fi
-    
+
     echo ""
     echo "✓ Training complete"
 else
@@ -128,23 +147,21 @@ if [ "$SKIP_EVAL" = false ]; then
     echo "Step 3: Evaluation"
     echo "========================================="
     
-    MODEL_DIR=${OUTPUT_DIR:-checkpoints/sft-deepseek-v3.2exp-longctx}
+    MODEL_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/main}
     
     # 3.1: Model evaluation
     echo ""
     echo "3.1: Evaluating model predictions..."
-    python3 src/eval/evaluate_sft.py \
-        --model_dir $MODEL_DIR \
-        --dataset_dir ${HF_DATASET_DIR:-data/hf_datasets/sft_dataset} \
-        --out ${EVAL_RESULTS_CSV:-results/eval_results.csv} \
-        --forward_days 5 \
-        --split test
+    python3 src/eval/evaluate_nemo.py \
+        --model ${MODEL_DIR}/deepseek_v3_finetune.nemo \
+        --dataset ${NEMO_DATASET_DIR:-data/nemo/sft_dataset} \
+        --results ${EVAL_RESULTS_CSV:-results/eval_results.csv}
     
     # 3.2: Backtest
     echo ""
     echo "3.2: Running backtest simulation..."
     python3 src/backtest/trading_backtest.py \
-        --eval_csv ${EVAL_RESULTS_CSV:-results/eval_results.csv} \
+        --eval_jsonl ${EVAL_RESULTS_CSV:-results/eval_results.csv} \
         --config configs/backtest_config.yaml \
         --out backtests/baseline.csv
     
@@ -160,9 +177,10 @@ echo "========================================="
 echo "Pipeline Complete!"
 echo "========================================="
 echo "Results:"
-echo "  - Model: ${OUTPUT_DIR:-checkpoints/sft-deepseek-v3.2exp-longctx}"
+echo "  - Model: ${OUTPUT_DIR:-checkpoints/nemo_runs/main}/deepseek_v3_finetune.nemo"
 echo "  - Evaluation: ${EVAL_RESULTS_CSV:-results/eval_results.csv}"
 echo "  - Backtest: backtests/baseline.csv"
+echo "  - Metrics: results/eval_results.csv.metrics.json"
 echo ""
 echo "Check logs in: ${LOG_DIR:-logs}/"
 echo ""

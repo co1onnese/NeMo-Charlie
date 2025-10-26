@@ -3,8 +3,8 @@
     "name": "SFT-Charlie: Financial Trading LLM Pipeline",
     "type": "Machine Learning Pipeline",
     "language": "Python",
-    "framework": "HuggingFace Transformers + TRL + PEFT",
-    "description": "A complete supervised fine-tuning pipeline for training financial trading models using DeepSeek-V3.2-Exp, with comprehensive data processing, evaluation, and backtesting capabilities.",
+    "framework": "NVIDIA NeMo + Megatron-Core",
+    "description": "A complete supervised fine-tuning pipeline for training financial trading models using DeepSeek-V3 via NVIDIA NeMo, with comprehensive data processing, evaluation, and backtesting capabilities.",
     "architecture": "ML Pipeline",
     "phase": "Phase 1 (SFT) - Implementation Complete",
     "status": "Ready for GPU Training"
@@ -82,39 +82,53 @@
       "special_tokens": ["<reasoning>", "</reasoning>", "<support>", "</support>", "<action>", "</action>", "<STRONG_BUY>", "<BUY>", "<HOLD>", "<SELL>", "<STRONG_SELL>"]
     },
 
-    "train_sft.py": {
-      "responsibility": "Executes supervised fine-tuning of DeepSeek model using PEFT/LoRA",
-      "natural_language": "This is the core training script that takes the prepared dataset and fine-tunes the massive DeepSeek language model to generate structured financial analysis. It uses efficient LoRA adapters to train only small parts of the model, making it feasible on limited hardware.",
+    "train_nemo.py": {
+      "responsibility": "Executes supervised fine-tuning of DeepSeek-V3 using NVIDIA NeMo",
+      "natural_language": "This is the core training script that takes the prepared NeMo JSONL dataset and fine-tunes DeepSeek-V3 using NeMo's distributed training framework with full-parameter fine-tuning or optional LoRA adapters for 8×H100 topology.",
       "key_functions": [
-        "load_model() - Loads DeepSeek with 4-bit quantization",
-        "format_example() - Creates Alpaca-style prompts",
-        "main() - Orchestrates training with TRL SFTTrainer"
+        "build_data_module() - Creates NeMo FineTuningDataModule",
+        "run_training() - Orchestrates NeMo recipe execution",
+        "main() - Entry point with config loading and manifest generation"
       ],
-      "inputs": "Tokenized dataset + model configuration",
-      "outputs": "Fine-tuned LoRA adapters (~500MB) + extended tokenizer",
-      "dependencies": ["transformers", "trl", "peft", "bitsandbytes", "torch", "accelerate"],
+      "inputs": "NeMo JSONL dataset + .nemo checkpoint + YAML config",
+      "outputs": "Fine-tuned .nemo archive (~20GB full / ~500MB LoRA)",
+      "dependencies": ["nemo-toolkit", "megatron-core", "torch", "omegaconf"],
       "hyperparameters": {
-        "learning_rate": "1.5e-4",
+        "learning_rate": "5e-6 (full) / 1e-4 (LoRA)",
         "max_length": 65536,
-        "batch_size": "1 per device (gradient accumulation)",
-        "lora_r": 8,
-        "lora_alpha": 16,
+        "batch_size": "1 micro, 128 global",
+        "tensor_parallel": 8,
+        "pipeline_parallel": "5-8 depending on peft",
         "epochs": 2
       }
     },
 
-    "evaluate_sft.py": {
-      "responsibility": "Evaluates model predictions using NLP metrics and financial backtesting",
-      "natural_language": "After training, this script tests how well the model performs by generating predictions and comparing them to actual market outcomes. It measures both language quality (action prediction accuracy) and financial performance (hit rates, returns).",
+    "export_nemo_dataset.py": {
+      "responsibility": "Exports HuggingFace datasets to NeMo-compatible JSONL format",
+      "natural_language": "This module bridges the gap between our existing HF dataset pipeline and NeMo's expected input format by converting train/validation/test splits into separate JSONL files with proper prompt/response structure.",
       "key_functions": [
-        "generate_prediction() - Creates model responses",
-        "evaluate_classification() - Computes accuracy, F1 scores",
-        "evaluate_financial() - Calculates hit rates, Sharpe ratios",
+        "format_prompt() - Converts instruction/input/output to template format",
+        "export_split() - Writes JSONL with metadata",
+        "extend_tokenizer() - Adds special tokens to base tokenizer",
+        "main() - CLI for dataset export"
+      ],
+      "inputs": "HuggingFace DatasetDict",
+      "outputs": "training.jsonl, validation.jsonl, test.jsonl + extended tokenizer",
+      "dependencies": ["datasets", "transformers"],
+      "templates": ["alpaca", "chatml", "simple"]
+    },
+
+    "evaluate_nemo.py": {
+      "responsibility": "Evaluates NeMo checkpoints using NLP metrics and financial backtesting",
+      "natural_language": "After NeMo training, this script restores the .nemo checkpoint, generates predictions on test data, and computes both language quality metrics (action prediction accuracy) and financial performance (hit rates, returns).",
+      "key_functions": [
+        "load_dataset() - Loads NeMo JSONL split",
+        "evaluate() - Generates predictions via llm.restore_model",
         "main() - Orchestrates evaluation pipeline"
       ],
-      "inputs": "Fine-tuned model + test dataset",
-      "outputs": "CSV results + comprehensive metrics report",
-      "dependencies": ["transformers", "sklearn", "pandas", "torch"],
+      "inputs": "NeMo .nemo checkpoint + JSONL test dataset",
+      "outputs": "CSV results + metrics JSON",
+      "dependencies": ["nemo-toolkit", "pandas", "sklearn"],
       "metrics": ["Action accuracy", "Precision/Recall/F1", "Hit rate", "Mean returns", "Sharpe ratio"]
     },
 
@@ -246,10 +260,10 @@
   },
 
   "data_flow": {
-    "raw_data": "XML thesis files → jsonl conversion → dataset creation → tokenization → training",
-    "training": "Tokenized dataset → SFT training → LoRA adapters → model checkpoint",
-    "evaluation": "Test dataset + model → predictions → price data → metrics + backtest",
-    "outputs": "Model weights (~500MB) + evaluation CSVs + backtest results + logs"
+    "raw_data": "XML thesis files → jsonl conversion → HF dataset creation → NeMo JSONL export → training",
+    "training": "NeMo JSONL dataset → NeMo fine-tuning → .nemo checkpoint (full or LoRA)",
+    "evaluation": "NeMo .nemo checkpoint + test JSONL → predictions → price data → metrics + backtest",
+    "outputs": ".nemo checkpoints (~20GB full / ~500MB LoRA) + evaluation CSVs + backtest results + logs"
   },
 
   "key_features": {
@@ -370,25 +384,33 @@
       "commands": [
         "python3 tests/test_data_pipeline.py",
         "python3 src/parsers/xml_to_jsonl.py",
-        "bash scripts/smoke_test.sh"
+        "python3 src/data/export_nemo_dataset.py --max_samples 10"
+      ]
+    },
+
+    "model_conversion": {
+      "description": "One-time conversion of DeepSeek FP8 to NeMo format",
+      "commands": [
+        "bash scripts/convert/convert_deepseek_v3.sh --source checkpoints/source/deepseek-v3 --output checkpoints/bf16/deepseek-v3",
+        "python3 scripts/convert/import_to_nemo.py --bf16-dir checkpoints/bf16/deepseek-v3 --output checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo"
       ]
     },
 
     "gpu_training": {
-      "description": "Full training on GPU server",
+      "description": "Full training on 8×H100 server",
       "commands": [
-        "bash scripts/setup_env.sh",
+        "INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh",
         "python3 src/data/convert_dataset.py",
-        "python3 src/data/tokenize_and_shard.py",
-        "python3 src/train/train_sft.py --config configs/sft_config.yaml"
+        "python3 src/data/export_nemo_dataset.py",
+        "python3 src/train/train_nemo.py --config configs/nemo/finetune.yaml"
       ]
     },
 
     "evaluation": {
       "description": "Test trained model performance",
       "commands": [
-        "python3 src/eval/evaluate_sft.py",
-        "python3 src/backtest/trading_backtest.py"
+        "python3 src/eval/evaluate_nemo.py",
+        "python3 src/backtest/trading_backtest.py --eval_jsonl results/eval_results.csv"
       ]
     }
   },
@@ -437,8 +459,11 @@
   "entry_points": {
     "data_processing": "src/parsers/xml_to_jsonl.py",
     "dataset_creation": "src/data/convert_dataset.py",
-    "training": "src/train/train_sft.py",
-    "evaluation": "src/eval/evaluate_sft.py",
+    "nemo_export": "src/data/export_nemo_dataset.py",
+    "model_conversion": "scripts/convert/convert_deepseek_v3.sh",
+    "nemo_import": "scripts/convert/import_to_nemo.py",
+    "training": "src/train/train_nemo.py",
+    "evaluation": "src/eval/evaluate_nemo.py",
     "backtesting": "src/backtest/trading_backtest.py",
     "full_pipeline": "scripts/run_full_pipeline.sh",
     "smoke_test": "scripts/smoke_test.sh"
@@ -447,28 +472,32 @@
   "critical_paths": {
     "data_integrity": "validation.py ensures clean data throughout pipeline",
     "time_leakage": "convert_dataset.py prevents future data in training",
-    "model_loading": "train_sft.py handles quantization and LoRA setup",
+    "model_conversion": "fp8_cast_bf16.py converts DeepSeek FP8→BF16 for NeMo",
+    "model_loading": "train_nemo.py handles NeMo recipe initialization and data module setup",
     "reproducibility": "manifest.py creates complete audit trails",
     "error_recovery": "All modules have graceful failure modes"
   },
 
   "dependencies": {
-    "core_ml": ["torch", "transformers", "datasets", "trl", "peft", "bitsandbytes"],
+    "core_ml": ["torch", "nemo-toolkit", "megatron-core", "transformers", "datasets"],
     "data_processing": ["pandas", "numpy", "pyarrow", "scikit-learn"],
-    "utilities": ["pyyaml", "python-dotenv", "tqdm", "colorlog"],
+    "utilities": ["pyyaml", "python-dotenv", "tqdm", "colorlog", "omegaconf", "hydra-core"],
     "financial": ["yfinance", "requests"],
-    "optional": ["wandb", "tensorboard", "deepspeed"]
+    "conversion": ["triton", "safetensors"],
+    "optional": ["wandb", "tensorboard", "apex", "flash-attn"]
   },
 
   "file_relationships": {
     "xml_to_jsonl.py": "Creates JSONL from XML",
     "convert_dataset.py": "Uses JSONL to create HF dataset",
-    "tokenize_and_shard.py": "Uses HF dataset for tokenization",
-    "train_sft.py": "Uses tokenized data for training",
-    "evaluate_sft.py": "Uses trained model + HF dataset",
-    "trading_backtest.py": "Uses evaluation CSV",
-    "price_data.py": "Used by evaluate_sft.py",
-    "validation.py": "Used by all data processing modules"
+    "export_nemo_dataset.py": "Uses HF dataset to create NeMo JSONL",
+    "train_nemo.py": "Uses NeMo JSONL for training",
+    "evaluate_nemo.py": "Uses trained .nemo checkpoint + NeMo JSONL",
+    "trading_backtest.py": "Uses evaluation CSV/JSONL",
+    "price_data.py": "Used by evaluate_nemo.py",
+    "validation.py": "Used by all data processing modules",
+    "fp8_cast_bf16.py": "Converts DeepSeek FP8 to BF16",
+    "import_to_nemo.py": "Creates .nemo archive from BF16"
   },
 
   "state_management": {

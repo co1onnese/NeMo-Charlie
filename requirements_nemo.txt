@@ -1,0 +1,6 @@
+# NeMo and supporting packages for DeepSeek-V3 fine-tuning
+nemo-toolkit
+
+# Utilities
+omegaconf
+hydra-core

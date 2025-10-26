@@ -1,0 +1,16 @@
+{
+  "classification_labels": [
+    "STRONG_BUY",
+    "BUY",
+    "HOLD",
+    "SELL",
+    "STRONG_SELL"
+  ],
+  "financial_direction": {
+    "STRONG_BUY": 1,
+    "BUY": 1,
+    "HOLD": 0,
+    "SELL": -1,
+    "STRONG_SELL": -1
+  }
+}

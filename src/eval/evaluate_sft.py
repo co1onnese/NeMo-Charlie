@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 evaluate_sft.py
+
+⚠️  DEPRECATED: This script evaluates Hugging Face checkpoints and is retained for legacy compatibility only.
+⚠️  For NeMo checkpoints, use src/eval/evaluate_nemo.py
+
 Evaluate a fine-tuned SFT model on both NLP and market outcomes.
 Uses eodhd.com API for price data with yfinance fallback.
 
@@ -8,6 +12,8 @@ Usage:
   python src/eval/evaluate_sft.py --model_dir checkpoints/sft-run \
     --dataset_dir data/hf_datasets/sft_dataset \
     --out results/eval_results.csv
+
+See NEMO_MIGRATION.md for details on the new NeMo-based workflow.
 """
 import argparse
 import os

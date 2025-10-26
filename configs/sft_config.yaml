@@ -1,3 +1,6 @@
+# ⚠️  DEPRECATED: This config is for TRL/Hugging Face training (legacy).
+# ⚠️  For NeMo training, use configs/nemo/finetune.yaml
+#
 # Optimized SFT config for DeepSeek-V3.2-Exp (long-context, sparse attention)
 
 base_model: "deepseek-ai/DeepSeek-V3.2-Exp"

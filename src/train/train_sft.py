@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
 train_sft.py
+
+⚠️  DEPRECATED: This script uses TRL/Hugging Face and is retained for legacy compatibility only.
+⚠️  For new training, use src/train/train_nemo.py with NVIDIA NeMo.
+
 SFT training entrypoint using TRL.SFTTrainer + PEFT(LoRA) + QLoRA(bitsandbytes 4-bit).
 Optimized for DeepSeek-V3.2-Exp with special token handling.
 
 Usage:
   python src/train/train_sft.py --config configs/sft_config.yaml
   python src/train/train_sft.py --config configs/sft_config.yaml --smoke_test
+
+See NEMO_MIGRATION.md for details on the new NeMo-based workflow.
 """
 import argparse
 import os

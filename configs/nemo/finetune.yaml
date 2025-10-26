@@ -1,0 +1,40 @@
+# NeMo finetuning configuration for DeepSeek-V3
+#
+# This config drives the NeMo fine-tuning recipe for DeepSeek-V3 (671B parameters).
+# It assumes a single 8×H100 node with NVLink for training.
+#
+# Key sections:
+# - recipe: NeMo recipe factory and checkpoint paths
+# - dataset: JSONL data location and processing parameters
+# - train: Training hyperparameters and parallelism settings
+#
+# For full-parameter fine-tuning: set peft=none, num_nodes=8+
+# For LoRA fine-tuning: set peft=lora, num_nodes=1-5
+#
+# See NEMO_MIGRATION.md for detailed configuration guide.
+
+recipe:
+  factory: deepseek_v3
+  name: deepseek_v3_finetune
+  resume_path: checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo
+
+dataset:
+  # Directory containing NeMo-ready JSONL shards (produced by future data refactor)
+  path: data/nemo/sft_dataset
+  template: chatml
+  columns:
+    prompt: prompt
+    response: response
+  num_workers: 8
+  label_key: output
+  answer_only_loss: true
+
+train:
+  peft: none               # full-parameter fine-tune; set to 'lora' to enable adapters
+  seq_length: 65536
+  micro_batch_size: 1
+  global_batch_size: 128
+  num_nodes: 1             # assume single 8xH100 node; adjust for multi-node runs
+  gpus_per_node: 8
+  performance_mode: false
+  smoke_test_steps: 10

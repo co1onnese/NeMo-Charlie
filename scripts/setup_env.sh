@@ -33,13 +33,27 @@ source "$VENV_DIR/bin/activate"
 echo "Upgrading pip..."
 pip install --upgrade pip setuptools wheel
 
-# Install PyTorch (CPU version for initial testing)
-echo "Installing PyTorch (CPU version)..."
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Install PyTorch
+if [[ "${INSTALL_GPU_TORCH:-false}" == "true" ]]; then
+    echo "Installing PyTorch with CUDA support (ensure correct CUDA toolkit)..."
+    pip install torch --index-url https://download.pytorch.org/whl/cu124
+else
+    echo "Installing PyTorch (CPU version)..."
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+fi
 
 # Install requirements
 echo "Installing requirements..."
 pip install -r requirements.txt
+
+if [[ "${INSTALL_NEMO:-false}" == "true" ]]; then
+    echo "Installing NeMo-specific requirements..."
+    if [[ ! -f requirements_nemo.txt ]]; then
+        echo "✗ requirements_nemo.txt not found" >&2
+        exit 1
+    fi
+    pip install -r requirements_nemo.txt
+fi
 
 # Verify installations
 echo ""

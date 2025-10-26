@@ -104,13 +104,22 @@ def run_backtest(eval_df, cfg):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--eval_csv", required=True)
+    p.add_argument("--eval_csv", default=None, help="Legacy CSV results")
+    p.add_argument("--eval_jsonl", default=None, help="NeMo JSONL results")
     p.add_argument("--config", required=True)
     p.add_argument("--out", required=True)
     args = p.parse_args()
 
     cfg = load_config(args.config)
-    df = pd.read_csv(args.eval_csv, parse_dates=["as_of_date"])
+    if args.eval_jsonl:
+        records = [json.loads(line) for line in Path(args.eval_jsonl).open("r", encoding="utf-8")]
+        df = pd.DataFrame(records)
+        if "as_of_date" in df.columns:
+            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+    elif args.eval_csv:
+        df = pd.read_csv(args.eval_csv, parse_dates=["as_of_date"])
+    else:
+        raise SystemExit("Either --eval_csv or --eval_jsonl must be provided")
     equity_series, metrics, positions = run_backtest(df, cfg)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

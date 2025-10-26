@@ -67,48 +67,33 @@ python3 src/train/train_sft.py --config configs/sft_config.yaml
 
 ---
 
-### 2. Fine-Tuned Model Weights (LoRA Adapters)
+### 2. Imported & Fine-Tuned NeMo Models
 
-**Location:**
+**Locations:**
 ```
-/opt/SFT-Charlie/checkpoints/sft-deepseek-v3.2exp-longctx/
-```
-
-**Structure:**
-```
-checkpoints/sft-deepseek-v3.2exp-longctx/
-├── adapter_config.json          # LoRA configuration
-├── adapter_model.safetensors    # ✅ Main fine-tuned weights (~100-500 MB)
-├── config.json                  # Model config (copied from base)
-├── tokenizer.json               # Extended tokenizer
-├── tokenizer_config.json
-├── special_tokens_map.json
-├── training_args.bin            # Training hyperparameters
-├── manifest.json                # Reproducibility info
-├── trainer_state.json           # Training state
-├── checkpoint-500/              # Intermediate checkpoint
-│   ├── adapter_model.safetensors
-│   └── ...
-├── checkpoint-1000/
-└── checkpoint-1500/
+/opt/SFT-Charlie/checkpoints/
+  ├── nemo/deepseek-v3-base_tp8_pp1.nemo       # Imported BF16 checkpoint
+  └── nemo_runs/<run-name>/
+         ├── deepseek_v3_finetune.nemo        # Fine-tuned NeMo archive
+         └── manifest.json                    # Run metadata
 ```
 
-**Size:** ~100-500 MB for LoRA adapters
-- Much smaller than full model (20 GB+) because we only train adapters
-- Checkpoints: ~100-500 MB each (x3 max = ~1.5 GB total)
+**Size:**
+- Imported base `.nemo`: ~20 GB (BF16)
+- Fine-tuned `.nemo`: ~20 GB (includes tokenizer + adapters)
 
-**Configured in:** `.env` file
-```bash
-OUTPUT_DIR=checkpoints/sft-deepseek-v3.2exp-longctx
-```
+**Configured in:** `configs/nemo/finetune.yaml`
 
 **Contains:**
-- LoRA adapter weights (the fine-tuned parameters)
-- Extended tokenizer with special tokens
-- Training configuration
-- Reproducibility manifest
+- Full NeMo model archive (weights, tokenizer, config)
+- Manifest with config + git info
 
-**⚠️ Note:** The base model weights are NOT duplicated here. Only the small LoRA adapters are saved.
+**Tip:** Export to Hugging Face format if needed:
+```bash
+python -m nemo.collections.llm.export.export_lora_to_hf \
+  --nemo-file checkpoints/nemo_runs/main/deepseek_v3_finetune.nemo \
+  --output-dir checkpoints/hf_export
+```
 
 ---
 

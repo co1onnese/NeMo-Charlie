@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 tokenize_and_shard.py
+
+⚠️  DEPRECATED: This script tokenizes for TRL/Hugging Face training and is retained for legacy compatibility only.
+⚠️  For NeMo training, use src/data/export_nemo_dataset.py to create JSONL files.
+
 Tokenize HF dataset with special tokens for XML tags and actions.
 Handles DeepSeek tokenizer specifics and creates shards for large datasets.
 
@@ -9,6 +13,8 @@ Usage:
     --dataset_dir data/hf_datasets/sft_dataset \
     --tokenizer deepseek-ai/DeepSeek-V3.2-Exp \
     --out_dir data/hf_datasets/sft_dataset_tokenized
+
+See NEMO_MIGRATION.md for details on the new NeMo-based workflow.
 """
 import argparse
 import os
