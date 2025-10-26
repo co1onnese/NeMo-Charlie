@@ -5,10 +5,7 @@ accelerate>=0.25.0
 datasets>=2.16.0
 safetensors>=0.4.0
 
-# Training frameworks
-trl>=0.7.10
-peft>=0.7.0
-bitsandbytes>=0.41.0
+# Training frameworks (legacy TRL removed - using NeMo now)
 
 # Tokenization
 sentencepiece>=0.1.99
@@ -44,9 +41,6 @@ tensorboard>=2.15.0
 # Testing
 pytest>=7.4.0
 pytest-cov>=4.1.0
-
-# DeepSpeed (for multi-GPU training)
-deepspeed>=0.12.0
 
 # Utilities
 python-dateutil>=2.8.2

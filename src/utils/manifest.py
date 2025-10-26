@@ -152,18 +152,6 @@ def get_environment_info() -> Dict[str, Any]:
     except ImportError:
         pass
     
-    try:
-        import trl
-        env_info["packages"]["trl"] = trl.__version__
-    except ImportError:
-        pass
-    
-    try:
-        import peft
-        env_info["packages"]["peft"] = peft.__version__
-    except ImportError:
-        pass
-    
     return env_info
 
 

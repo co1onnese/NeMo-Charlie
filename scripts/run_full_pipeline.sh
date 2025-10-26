@@ -21,6 +21,7 @@ fi
 
 # Parse arguments
 SMOKE_TEST=false
+SKIP_MODEL_SETUP=false
 SKIP_DATA=false
 SKIP_TRAIN=false
 SKIP_EVAL=false
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --smoke-test)
             SMOKE_TEST=true
+            shift
+            ;;
+        --skip-model-setup)
+            SKIP_MODEL_SETUP=true
             shift
             ;;
         --skip-data)
@@ -45,7 +50,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--smoke-test] [--skip-data] [--skip-train] [--skip-eval]"
+            echo "Usage: $0 [--smoke-test] [--skip-model-setup] [--skip-data] [--skip-train] [--skip-eval]"
             exit 1
             ;;
     esac
@@ -55,6 +60,123 @@ if [ "$SMOKE_TEST" = true ]; then
     echo "SMOKE TEST MODE"
     export CPU_ONLY_MODE=true
     export SMOKE_TEST_MODE=true
+fi
+
+# Step 0: Model Setup (Download & Convert DeepSeek-V3)
+if [ "$SKIP_MODEL_SETUP" = false ]; then
+    echo ""
+    echo "========================================="
+    echo "Step 0: Model Setup"
+    echo "========================================="
+
+    # Define model paths (using /data for large files)
+    MODEL_SOURCE_DIR=${MODEL_SOURCE_DIR:-/data/models/deepseek-v3-source}
+    MODEL_BF16_DIR=${MODEL_BF16_DIR:-/data/models/deepseek-v3-bf16}
+    MODEL_NEMO_PATH=${MODEL_NEMO_PATH:-/data/models/deepseek-v3-base_tp8_pp1.nemo}
+
+    # Check if NeMo model already exists
+    if [ -f "$MODEL_NEMO_PATH" ]; then
+        echo "✓ NeMo model already exists at: $MODEL_NEMO_PATH"
+        echo "  Skipping model download and conversion."
+        echo "  To re-convert, delete the file and re-run without --skip-model-setup"
+    else
+        echo "NeMo model not found. Starting download and conversion process..."
+        echo ""
+
+        # 0.1: Download DeepSeek-V3 from HuggingFace
+        if [ ! -d "$MODEL_SOURCE_DIR" ] || [ ! -f "$MODEL_SOURCE_DIR/config.json" ]; then
+            echo "0.1: Downloading DeepSeek-V3-Base from HuggingFace..."
+            echo "     This will download ~100GB of model weights."
+            echo ""
+
+            # Check if git-lfs is installed
+            if ! command -v git-lfs &> /dev/null; then
+                echo "Error: git-lfs is not installed."
+                echo "Please install git-lfs first:"
+                echo "  Ubuntu/Debian: sudo apt-get install git-lfs"
+                echo "  CentOS/RHEL:   sudo yum install git-lfs"
+                echo "  macOS:         brew install git-lfs"
+                exit 1
+            fi
+
+            # Initialize git-lfs
+            git lfs install
+
+            # Create parent directory
+            mkdir -p "$(dirname "$MODEL_SOURCE_DIR")"
+
+            # Clone with LFS
+            echo "Cloning deepseek-ai/DeepSeek-V3-Base..."
+            echo "NOTE: This may take 30-60 minutes depending on your connection."
+            git clone https://huggingface.co/deepseek-ai/DeepSeek-V3-Base "$MODEL_SOURCE_DIR"
+
+            echo "✓ Download complete"
+        else
+            echo "✓ DeepSeek-V3 source already exists at: $MODEL_SOURCE_DIR"
+        fi
+
+        echo ""
+
+        # 0.2: Convert FP8 to BF16
+        if [ ! -d "$MODEL_BF16_DIR" ] || [ ! -f "$MODEL_BF16_DIR/config.json" ]; then
+            echo "0.2: Converting FP8 weights to BF16..."
+            echo "     This requires GPU and may take 15-30 minutes."
+            echo ""
+
+            # Check if we're in CPU-only mode
+            if [ "${CPU_ONLY_MODE:-false}" = "true" ]; then
+                echo "Warning: CPU_ONLY_MODE is enabled, but conversion requires GPU."
+                echo "Skipping conversion. Please run without --smoke-test on a GPU server."
+            else
+                bash scripts/convert/convert_deepseek_v3.sh \
+                    --source "$MODEL_SOURCE_DIR" \
+                    --output "$MODEL_BF16_DIR" \
+                    --log logs/conversion/deepseek_v3_fp8_to_bf16.log
+
+                echo "✓ BF16 conversion complete"
+            fi
+        else
+            echo "✓ BF16 model already exists at: $MODEL_BF16_DIR"
+        fi
+
+        echo ""
+
+        # 0.3: Import to NeMo format
+        if [ ! -f "$MODEL_NEMO_PATH" ]; then
+            echo "0.3: Importing BF16 checkpoint to NeMo format..."
+            echo "     This creates a .nemo archive optimized for 8×H100."
+            echo ""
+
+            # Check if we're in CPU-only mode
+            if [ "${CPU_ONLY_MODE:-false}" = "true" ]; then
+                echo "Warning: CPU_ONLY_MODE is enabled, but NeMo import may require GPU."
+                echo "Skipping import. Please run without --smoke-test on a GPU server."
+            else
+                # Create parent directory
+                mkdir -p "$(dirname "$MODEL_NEMO_PATH")"
+
+                python3 scripts/convert/import_to_nemo.py \
+                    --bf16-dir "$MODEL_BF16_DIR" \
+                    --output "$MODEL_NEMO_PATH" \
+                    --tensor-parallel 8 \
+                    --pipeline-parallel 1 \
+                    --sequence-length 131072 \
+                    --model-name deepseek_v3
+
+                echo "✓ NeMo import complete"
+            fi
+        else
+            echo "✓ NeMo model already exists at: $MODEL_NEMO_PATH"
+        fi
+
+        echo ""
+        echo "✓ Model setup complete"
+        echo "  NeMo checkpoint: $MODEL_NEMO_PATH"
+    fi
+else
+    echo "Skipping model setup (--skip-model-setup)"
+    echo "Note: Training will fail if NeMo model doesn't exist at:"
+    echo "      ${MODEL_NEMO_PATH:-/data/models/deepseek-v3-base_tp8_pp1.nemo}"
 fi
 
 # Step 1: Data preparation
@@ -103,35 +225,21 @@ if [ "$SKIP_TRAIN" = false ]; then
     echo "Step 2: SFT Training"
     echo "========================================="
 
-    if [ "${TRAIN_BACKEND:-nemo}" = "nemo" ]; then
-        CONFIG_FILE="configs/nemo/finetune.yaml"
-        OUTPUT_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/latest}
-        mkdir -p "$(dirname "$OUTPUT_DIR")"
+    CONFIG_FILE="configs/nemo/finetune.yaml"
+    OUTPUT_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/latest}
+    mkdir -p "$(dirname "$OUTPUT_DIR")"
 
-        if [ "$SMOKE_TEST" = true ]; then
-            echo "Running NeMo smoke test..."
-            python3 src/train/train_nemo.py \
-                --config "$CONFIG_FILE" \
-                --output "$OUTPUT_DIR" \
-                --smoke-test
-        else
-            echo "Running NeMo full training via launcher..."
+    if [ "$SMOKE_TEST" = true ]; then
+        echo "Running NeMo smoke test..."
         python3 src/train/train_nemo.py \
-                --config "$CONFIG_FILE" \
-                --output "$OUTPUT_DIR"
-        fi
+            --config "$CONFIG_FILE" \
+            --output "$OUTPUT_DIR" \
+            --smoke-test
     else
-        CONFIG_FILE="configs/sft_config.yaml"
-        if [ "$SMOKE_TEST" = true ]; then
-            echo "Running HF smoke test (legacy)..."
-            python3 src/train/train_sft.py \
-                --config "$CONFIG_FILE" \
-                --smoke_test
-        else
-            echo "Running HF full training (legacy)..."
-            python3 src/train/train_sft.py \
-                --config "$CONFIG_FILE"
-        fi
+        echo "Running NeMo full training via launcher..."
+        python3 src/train/train_nemo.py \
+            --config "$CONFIG_FILE" \
+            --output "$OUTPUT_DIR"
     fi
 
     echo ""
@@ -176,8 +284,11 @@ echo ""
 echo "========================================="
 echo "Pipeline Complete!"
 echo "========================================="
+echo "Model Setup:"
+echo "  - Base Model: ${MODEL_NEMO_PATH:-/data/models/deepseek-v3-base_tp8_pp1.nemo}"
+echo ""
 echo "Results:"
-echo "  - Model: ${OUTPUT_DIR:-checkpoints/nemo_runs/main}/deepseek_v3_finetune.nemo"
+echo "  - Fine-tuned Model: ${OUTPUT_DIR:-checkpoints/nemo_runs/main}/deepseek_v3_finetune.nemo"
 echo "  - Evaluation: ${EVAL_RESULTS_CSV:-results/eval_results.csv}"
 echo "  - Backtest: backtests/baseline.csv"
 echo "  - Metrics: results/eval_results.csv.metrics.json"
