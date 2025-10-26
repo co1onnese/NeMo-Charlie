@@ -1,0 +1,513 @@
+{
+  "project": {
+    "name": "SFT-Charlie: Financial Trading LLM Pipeline",
+    "type": "Machine Learning Pipeline",
+    "language": "Python",
+    "framework": "HuggingFace Transformers + TRL + PEFT",
+    "description": "A complete supervised fine-tuning pipeline for training financial trading models using DeepSeek-V3.2-Exp, with comprehensive data processing, evaluation, and backtesting capabilities.",
+    "architecture": "ML Pipeline",
+    "phase": "Phase 1 (SFT) - Implementation Complete",
+    "status": "Ready for GPU Training"
+  },
+
+  "directory_structure": {
+    "root": "/opt/SFT-Charlie",
+    "data": {
+      "raw_xml": "Raw XML thesis files from financial analysis",
+      "jsonl": "Converted JSONL records (one per thesis)",
+      "hf_datasets": "HuggingFace Arrow format datasets",
+      "price_cache": "Cached financial price data (eodhd + yfinance)",
+      "samples": "Example/test data files"
+    },
+    "src": {
+      "parsers": "XML parsing and data ingestion",
+      "data": "Dataset processing and price data management",
+      "train": "SFT training scripts",
+      "eval": "Model evaluation and metrics",
+      "backtest": "Portfolio backtesting simulation",
+      "utils": "Shared utilities and helpers"
+    },
+    "configs": "YAML configuration files",
+    "scripts": "Automation scripts",
+    "checkpoints": "Saved model weights",
+    "results": "Evaluation outputs",
+    "backtests": "Backtesting results",
+    "logs": "Runtime logs",
+    "tests": "Unit tests"
+  },
+
+  "core_components": {
+    "xml_to_jsonl.py": {
+      "responsibility": "Converts XML thesis files to JSONL format for dataset creation",
+      "natural_language": "This module parses XML files containing financial analysis theses, extracts structured information like reasoning, support, and trading actions, and converts them into a standardized JSONL format that can be processed by machine learning models.",
+      "key_functions": [
+        "parse_thesis() - Extracts reasoning/support/action from XML elements",
+        "normalize_value() - Cleans numeric and string values",
+        "iso_date_or_none() - Standardizes date formats",
+        "main() - CLI interface with validation"
+      ],
+      "inputs": "XML files with <stock-theses> and <thesis> elements",
+      "outputs": "JSONL file with instruction/input/output fields",
+      "dependencies": ["xml.etree.ElementTree", "pathlib", "dotenv"],
+      "error_handling": "Validates XML structure, handles malformed dates, logs parsing errors"
+    },
+
+    "convert_dataset.py": {
+      "responsibility": "Creates time-based train/validation/test splits with strict data leakage prevention",
+      "natural_language": "This critical component takes JSONL data and creates properly time-ordered datasets, ensuring that future data never leaks into training. It splits the data chronologically and saves it in HuggingFace's efficient Arrow format.",
+      "key_functions": [
+        "create_time_splits() - Implements chronological train/val/test division",
+        "validate_time_splits() - Prevents data leakage between splits",
+        "normalize_records() - Cleans and validates all thesis records",
+        "main() - CLI with comprehensive validation"
+      ],
+      "inputs": "JSONL file with thesis records",
+      "outputs": "HuggingFace DatasetDict with train/validation/test splits",
+      "dependencies": ["datasets", "pandas", "pathlib", "dotenv"],
+      "error_handling": "Validates date ranges, checks for duplicates, ensures minimum sample counts per split"
+    },
+
+    "tokenize_and_shard.py": {
+      "responsibility": "Tokenizes dataset with special XML tags and action tokens for DeepSeek model",
+      "natural_language": "This module prepares the dataset for training by converting text into tokens that the DeepSeek model can understand. It adds special tokens for XML structure and trading actions, enabling the model to learn structured financial reasoning.",
+      "key_functions": [
+        "setup_tokenizer() - Adds XML and action tokens to vocabulary",
+        "format_example() - Converts records to instruction-response format",
+        "tokenize_function() - Handles tokenization with proper labels",
+        "main() - Batch processing with multiprocessing"
+      ],
+      "inputs": "HuggingFace dataset with instruction/input/output fields",
+      "outputs": "Tokenized Arrow shards ready for training",
+      "dependencies": ["transformers", "datasets", "pathlib", "dotenv"],
+      "special_tokens": ["<reasoning>", "</reasoning>", "<support>", "</support>", "<action>", "</action>", "<STRONG_BUY>", "<BUY>", "<HOLD>", "<SELL>", "<STRONG_SELL>"]
+    },
+
+    "train_sft.py": {
+      "responsibility": "Executes supervised fine-tuning of DeepSeek model using PEFT/LoRA",
+      "natural_language": "This is the core training script that takes the prepared dataset and fine-tunes the massive DeepSeek language model to generate structured financial analysis. It uses efficient LoRA adapters to train only small parts of the model, making it feasible on limited hardware.",
+      "key_functions": [
+        "load_model() - Loads DeepSeek with 4-bit quantization",
+        "format_example() - Creates Alpaca-style prompts",
+        "main() - Orchestrates training with TRL SFTTrainer"
+      ],
+      "inputs": "Tokenized dataset + model configuration",
+      "outputs": "Fine-tuned LoRA adapters (~500MB) + extended tokenizer",
+      "dependencies": ["transformers", "trl", "peft", "bitsandbytes", "torch", "accelerate"],
+      "hyperparameters": {
+        "learning_rate": "1.5e-4",
+        "max_length": 65536,
+        "batch_size": "1 per device (gradient accumulation)",
+        "lora_r": 8,
+        "lora_alpha": 16,
+        "epochs": 2
+      }
+    },
+
+    "evaluate_sft.py": {
+      "responsibility": "Evaluates model predictions using NLP metrics and financial backtesting",
+      "natural_language": "After training, this script tests how well the model performs by generating predictions and comparing them to actual market outcomes. It measures both language quality (action prediction accuracy) and financial performance (hit rates, returns).",
+      "key_functions": [
+        "generate_prediction() - Creates model responses",
+        "evaluate_classification() - Computes accuracy, F1 scores",
+        "evaluate_financial() - Calculates hit rates, Sharpe ratios",
+        "main() - Orchestrates evaluation pipeline"
+      ],
+      "inputs": "Fine-tuned model + test dataset",
+      "outputs": "CSV results + comprehensive metrics report",
+      "dependencies": ["transformers", "sklearn", "pandas", "torch"],
+      "metrics": ["Action accuracy", "Precision/Recall/F1", "Hit rate", "Mean returns", "Sharpe ratio"]
+    },
+
+    "trading_backtest.py": {
+      "responsibility": "Simulates portfolio performance based on model predictions",
+      "natural_language": "This module takes the model's trading recommendations and simulates how a portfolio would perform if following those suggestions. It accounts for transaction costs, slippage, and position sizing to give realistic performance estimates.",
+      "key_functions": [
+        "run_backtest() - Executes portfolio simulation",
+        "compute_metrics() - Calculates Sharpe, Sortino, drawdown",
+        "main() - Processes evaluation CSV into backtest results"
+      ],
+      "inputs": "Evaluation CSV with model predictions + market data",
+      "outputs": "Equity curve + risk metrics + performance statistics",
+      "dependencies": ["pandas", "numpy", "yaml"],
+      "features": ["Transaction costs", "Position sizing", "Risk controls", "Multi-asset support"]
+    }
+  },
+
+  "utility_modules": {
+    "price_data.py": {
+      "responsibility": "Manages financial price data from eodhd.com API with yfinance fallback",
+      "natural_language": "This utility handles all price data needs for evaluation and backtesting. It fetches historical stock prices from a paid API, caches them efficiently, and falls back to free sources if needed.",
+      "key_functions": [
+        "get_price_data() - Fetches and caches price history",
+        "get_forward_return() - Calculates price changes over time",
+        "batch_get_forward_returns() - Bulk price calculations"
+      ],
+      "apis": ["eodhd.com (primary)", "yfinance (fallback)"],
+      "caching": "Parquet files in data/price_cache/",
+      "rate_limiting": "100ms delays between API calls"
+    },
+
+    "validation.py": {
+      "responsibility": "Comprehensive data validation and quality assurance",
+      "natural_language": "This module ensures data quality throughout the pipeline. It validates dates, actions, XML structure, and prevents common data issues that could corrupt training or evaluation.",
+      "key_functions": [
+        "validate_date_format() - Ensures YYYY-MM-DD format",
+        "validate_action() - Checks valid trading actions",
+        "validate_time_splits() - Prevents data leakage",
+        "validate_dataset_statistics() - Quality metrics"
+      ],
+      "validations": ["Date formats", "Action values", "XML structure", "Time splits", "Data completeness"]
+    },
+
+    "logger.py": {
+      "responsibility": "Centralized logging with colorized output and file rotation",
+      "natural_language": "Provides consistent, readable logging across all modules with both console and file output. Colors make it easy to spot errors, warnings, and progress in terminal output.",
+      "key_functions": [
+        "setup_logger() - Configures logging handlers",
+        "get_logger() - Gets or creates loggers",
+        "File rotation and color formatting"
+      ]
+    },
+
+    "manifest.py": {
+      "responsibility": "Creates reproducibility manifests for all training runs",
+      "natural_language": "Generates detailed records of every training run, including git commits, configurations, data checksums, and environment info. This ensures experiments are fully reproducible and auditable.",
+      "key_functions": [
+        "get_git_info() - Captures repository state",
+        "compute_config_hash() - Hashes configurations",
+        "create_manifest() - Builds complete manifest",
+        "get_environment_info() - Records system state"
+      ],
+      "contents": ["Git commit hash", "Config checksum", "Data file hashes", "Python packages", "System info"]
+    },
+
+    "eval_utils.py": {
+      "responsibility": "Shared utilities for evaluation and price data processing",
+      "natural_language": "Contains helper functions used across evaluation components, like extracting actions from generated text and managing price data lookups.",
+      "key_functions": [
+        "extract_action() - Parses trading actions from text",
+        "Integration with price_data module"
+      ]
+    }
+  },
+
+  "configuration_files": {
+    "sft_config.yaml": {
+      "purpose": "Single GPU training configuration",
+      "key_settings": {
+        "base_model": "deepseek-ai/DeepSeek-V3.2-Exp",
+        "max_length": 65536,
+        "learning_rate": "1.5e-4",
+        "lora_r": 8,
+        "batch_size": 1,
+        "gradient_accumulation": 16,
+        "num_epochs": 2
+      }
+    },
+
+    "sft_config_multigpu.yaml": {
+      "purpose": "Multi-GPU training with DeepSpeed",
+      "key_settings": {
+        "deepspeed": "configs/deepspeed_stage3.json",
+        "per_device_train_batch_size": 2,
+        "gradient_accumulation_steps": 8
+      }
+    },
+
+    "eval_config.yaml": {
+      "purpose": "Evaluation settings",
+      "key_settings": {
+        "forward_windows": [1, 5, 10, 30],
+        "price_cache": "data/price_cache.parquet",
+        "results_csv": "results/eval_results.csv"
+      }
+    },
+
+    "backtest_config.yaml": {
+      "purpose": "Backtesting parameters",
+      "key_settings": {
+        "initial_cash": 1000000,
+        "transaction_cost_bps": 5,
+        "slippage_bps": 10,
+        "position_sizing": "fixed_pct"
+      }
+    },
+
+    ".env": {
+      "purpose": "Environment variables and secrets",
+      "key_variables": {
+        "EODHD_API_KEY": "Financial data API key",
+        "TRAIN_START_DATE": "2023-10-24",
+        "TRAIN_END_DATE": "2024-12-31",
+        "TEST_START_DATE": "2025-01-01",
+        "CPU_ONLY_MODE": "false on GPU servers"
+      }
+    }
+  },
+
+  "data_flow": {
+    "raw_data": "XML thesis files → jsonl conversion → dataset creation → tokenization → training",
+    "training": "Tokenized dataset → SFT training → LoRA adapters → model checkpoint",
+    "evaluation": "Test dataset + model → predictions → price data → metrics + backtest",
+    "outputs": "Model weights (~500MB) + evaluation CSVs + backtest results + logs"
+  },
+
+  "key_features": {
+    "time_based_splits": {
+      "description": "Prevents data leakage by ensuring chronological train/val/test separation",
+      "implementation": "convert_dataset.py validates no future data in training",
+      "importance": "Critical for financial time series modeling"
+    },
+
+    "special_tokens": {
+      "description": "XML structure tokens enable structured reasoning output",
+      "tokens": ["<reasoning>", "</reasoning>", "<support>", "</support>", "<action>", "</action>", "<STRONG_BUY>", "<BUY>", "<HOLD>", "<SELL>", "<STRONG_SELL>"],
+      "benefit": "Model learns to generate properly formatted financial analysis"
+    },
+
+    "dual_price_sources": {
+      "description": "Primary eodhd.com API with yfinance fallback",
+      "caching": "Efficient Parquet-based price cache",
+      "reliability": "Automatic fallback ensures data availability"
+    },
+
+    "comprehensive_evaluation": {
+      "description": "Both NLP accuracy and financial performance metrics",
+      "metrics": ["Classification accuracy", "Hit rates", "Sharpe ratios", "Portfolio returns"],
+      "validation": "Real market outcomes, not just prediction accuracy"
+    },
+
+    "reproducibility": {
+      "description": "Complete manifest system for experiment tracking",
+      "tracking": ["Git commits", "Config hashes", "Data checksums", "Environment info"],
+      "benefit": "Fully auditable and reproducible results"
+    },
+
+    "cpu_compatibility": {
+      "description": "Smoke tests run on CPU, full training on GPU",
+      "cpu_features": ["Data processing", "Validation", "Small model tests"],
+      "gpu_features": ["Full model training", "Large batch inference"]
+    }
+  },
+
+  "architecture_patterns": {
+    "pipeline_architecture": {
+      "description": "Sequential ML pipeline with clear stages",
+      "stages": ["Data Ingestion", "Preprocessing", "Training", "Evaluation", "Backtesting"],
+      "benefits": ["Modular", "Testable", "Reproducible", "Maintainable"]
+    },
+
+    "configuration_management": {
+      "description": "Environment-based configuration with YAML overrides",
+      "approach": ".env file + YAML configs + CLI args",
+      "benefits": ["Flexible", "Version controllable", "Environment agnostic"]
+    },
+
+    "error_handling": {
+      "description": "Comprehensive validation and graceful failure",
+      "patterns": ["Input validation", "API fallbacks", "Logging", "Early exit"],
+      "benefits": ["Robust", "Debuggable", "User-friendly"]
+    },
+
+    "modular_design": {
+      "description": "Single responsibility modules with clear interfaces",
+      "pattern": "src/ directory with focused modules",
+      "benefits": ["Testable", "Reusable", "Maintainable"]
+    }
+  },
+
+  "performance_optimizations": {
+    "quantization": {
+      "description": "4-bit quantization reduces memory usage by ~75%",
+      "implementation": "bitsandbytes + QLoRA",
+      "benefit": "Enables training large models on limited GPU memory"
+    },
+
+    "gradient_checkpointing": {
+      "description": "Trades compute for memory during training",
+      "benefit": "Supports longer sequences with same memory"
+    },
+
+    "efficient_data_formats": {
+      "description": "Arrow format for fast dataset loading",
+      "benefit": "Quick iteration during development"
+    },
+
+    "caching_strategy": {
+      "description": "Price data and model caching",
+      "benefit": "Fast re-runs and reduced API calls"
+    },
+
+    "batch_processing": {
+      "description": "Parallel tokenization and evaluation",
+      "benefit": "Faster processing on multi-core systems"
+    }
+  },
+
+  "security_considerations": {
+    "api_keys": {
+      "description": "Secure storage of eodhd.com API credentials",
+      "implementation": ".env file (not committed)",
+      "risk": "API key exposure",
+      "mitigation": "Environment variables, .gitignore"
+    },
+
+    "data_validation": {
+      "description": "Comprehensive input validation",
+      "implementation": "validation.py module",
+      "benefit": "Prevents malicious or malformed data"
+    },
+
+    "reproducibility": {
+      "description": "Complete audit trail of all operations",
+      "benefit": "Financial compliance and debugging"
+    }
+  },
+
+  "development_workflow": {
+    "cpu_testing": {
+      "description": "Validate pipeline components without GPU",
+      "commands": [
+        "python3 tests/test_data_pipeline.py",
+        "python3 src/parsers/xml_to_jsonl.py",
+        "bash scripts/smoke_test.sh"
+      ]
+    },
+
+    "gpu_training": {
+      "description": "Full training on GPU server",
+      "commands": [
+        "bash scripts/setup_env.sh",
+        "python3 src/data/convert_dataset.py",
+        "python3 src/data/tokenize_and_shard.py",
+        "python3 src/train/train_sft.py --config configs/sft_config.yaml"
+      ]
+    },
+
+    "evaluation": {
+      "description": "Test trained model performance",
+      "commands": [
+        "python3 src/eval/evaluate_sft.py",
+        "python3 src/backtest/trading_backtest.py"
+      ]
+    }
+  },
+
+  "maintenance_notes": {
+    "code_standards": {
+      "style": "Black formatting, comprehensive docstrings",
+      "error_handling": "Try/except with specific exceptions",
+      "logging": "Consistent logging levels and messages",
+      "imports": "Absolute imports, grouped by type"
+    },
+
+    "testing_strategy": {
+      "unit_tests": "Individual functions and modules",
+      "integration_tests": "End-to-end pipeline validation",
+      "smoke_tests": "CPU-compatible pipeline checks"
+    },
+
+    "documentation": {
+      "inline": "Comprehensive docstrings and comments",
+      "external": "README, quick start, implementation status",
+      "examples": "Sample data and configuration files"
+    }
+  },
+
+  "scaling_considerations": {
+    "data_volume": {
+      "current": "~11K thesis records",
+      "scalability": "Arrow format supports millions of samples",
+      "bottlenecks": "Memory during tokenization"
+    },
+
+    "model_size": {
+      "current": "DeepSeek-V3.2-Exp (~20GB)",
+      "scalability": "LoRA keeps updates small (~500MB)",
+      "bottlenecks": "GPU memory, download time"
+    },
+
+    "compute_resources": {
+      "cpu": "Data processing, validation, testing",
+      "gpu": "Model training, inference, evaluation",
+      "optimization": "Gradient checkpointing, quantization"
+    }
+  },
+
+  "entry_points": {
+    "data_processing": "src/parsers/xml_to_jsonl.py",
+    "dataset_creation": "src/data/convert_dataset.py",
+    "training": "src/train/train_sft.py",
+    "evaluation": "src/eval/evaluate_sft.py",
+    "backtesting": "src/backtest/trading_backtest.py",
+    "full_pipeline": "scripts/run_full_pipeline.sh",
+    "smoke_test": "scripts/smoke_test.sh"
+  },
+
+  "critical_paths": {
+    "data_integrity": "validation.py ensures clean data throughout pipeline",
+    "time_leakage": "convert_dataset.py prevents future data in training",
+    "model_loading": "train_sft.py handles quantization and LoRA setup",
+    "reproducibility": "manifest.py creates complete audit trails",
+    "error_recovery": "All modules have graceful failure modes"
+  },
+
+  "dependencies": {
+    "core_ml": ["torch", "transformers", "datasets", "trl", "peft", "bitsandbytes"],
+    "data_processing": ["pandas", "numpy", "pyarrow", "scikit-learn"],
+    "utilities": ["pyyaml", "python-dotenv", "tqdm", "colorlog"],
+    "financial": ["yfinance", "requests"],
+    "optional": ["wandb", "tensorboard", "deepspeed"]
+  },
+
+  "file_relationships": {
+    "xml_to_jsonl.py": "Creates JSONL from XML",
+    "convert_dataset.py": "Uses JSONL to create HF dataset",
+    "tokenize_and_shard.py": "Uses HF dataset for tokenization",
+    "train_sft.py": "Uses tokenized data for training",
+    "evaluate_sft.py": "Uses trained model + HF dataset",
+    "trading_backtest.py": "Uses evaluation CSV",
+    "price_data.py": "Used by evaluate_sft.py",
+    "validation.py": "Used by all data processing modules"
+  },
+
+  "state_management": {
+    "description": "File-based state with configuration-driven behavior",
+    "persistent_state": "Model checkpoints, cached datasets, price data",
+    "configuration": ".env + YAML files control all behavior",
+    "logging": "Comprehensive logging to files and console",
+    "caching": "Price data and model caching for efficiency"
+  },
+
+  "error_states": {
+    "xml_parsing": "Invalid XML structure, logged and skipped",
+    "data_validation": "Missing fields, invalid dates, logged warnings",
+    "api_failures": "eodhd fallback to yfinance, cached data used",
+    "gpu_memory": "Gradient checkpointing, smaller batches",
+    "disk_space": "Efficient caching, checkpoint management"
+  },
+
+  "loading_states": {
+    "model_download": "20-40GB download on first use (~10-30 minutes)",
+    "dataset_loading": "Arrow format loads quickly",
+    "price_caching": "API calls cached in Parquet format",
+    "training": "Progress bars and logging throughout"
+  },
+
+  "performance_characteristics": {
+    "cpu_operations": "Data processing, validation, small tests",
+    "gpu_operations": "Model training, inference, evaluation",
+    "memory_usage": "Quantization reduces from 40GB to ~10GB",
+    "disk_usage": "Efficient caching, ~50GB total for full pipeline",
+    "network_usage": "Model download (one-time), price API calls"
+  },
+
+  "maintainability": {
+    "modular_design": "Single responsibility modules",
+    "comprehensive_logging": "Debuggable and auditable",
+    "configuration_driven": "Flexible without code changes",
+    "extensive_documentation": "README, inline docs, examples",
+    "testing_framework": "Unit tests for critical functions",
+    "error_handling": "Graceful failures with clear messages"
+  }
+}

@@ -1,0 +1,5 @@
+price_cache: "data/price_cache.parquet"   # optional pre-cached price table with columns [ticker, Date, Close, ...]
+forward_windows: [1, 5, 10, 30]
+results_csv: "results/eval_results.csv"
+model_dir: "checkpoints/sft-run"
+dataset_dir: "data/hf_datasets/sft_dataset"
