@@ -83,6 +83,10 @@ def load_and_extend_tokenizer(
         else:
             tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     
+    # CRITICAL: Set padding side to 'right' for causal LM training
+    tokenizer.padding_side = "right"
+    logger.info(f"Set tokenizer padding_side to: {tokenizer.padding_side}")
+    
     # Add special tokens
     num_added = tokenizer.add_tokens(special_tokens)
     logger.info(f"Added {num_added} special tokens to tokenizer")
@@ -188,20 +192,25 @@ def tokenize_function(
         return_tensors=None
     )
     
-    # Create labels with -100 for prompt tokens
+    # Create labels with -100 for prompt tokens and padding
     labels = []
     for i in range(len(full_tokenized["input_ids"])):
         input_ids = full_tokenized["input_ids"][i]
+        attention_mask = full_tokenized["attention_mask"][i]
         prompt_length = len(prompt_tokenized["input_ids"][i])
         
-        # Create labels: -100 for prompt, actual ids for output
-        label = [-100] * prompt_length + input_ids[prompt_length:]
-        
-        # Pad to max_length
-        if len(label) < max_length:
-            label = label + [-100] * (max_length - len(label))
-        else:
-            label = label[:max_length]
+        # Create labels: -100 for prompt and padding, actual ids for output
+        label = []
+        for j in range(len(input_ids)):
+            if j < prompt_length:
+                # Mask prompt tokens
+                label.append(-100)
+            elif attention_mask[j] == 0:
+                # Mask padding tokens
+                label.append(-100)
+            else:
+                # Keep actual response tokens
+                label.append(input_ids[j])
         
         labels.append(label)
     

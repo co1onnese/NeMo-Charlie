@@ -43,21 +43,32 @@ def normalize_value(val):
 
 def parse_thesis(elem):
     """
-    Given an Element for <thesis>, return dict with keys reasoning, support, action, and any indicators.
+    Given an Element for <thesis>, return dict with keys reasoning, support, action, as_of_date, and any indicators.
     """
     data = {}
-    # try to pull standard tags
+    # try to pull standard tags including as-of-date
     for tag in ("reasoning", "support", "action"):
         node = elem.find(tag)
         if node is not None and node.text is not None:
             data[tag] = node.text.strip()
         else:
             data[tag] = None
+    
+    # Extract as-of-date specifically (handle both as-of-date and as_of_date)
+    as_of_node = elem.find("as-of-date")
+    if as_of_node is None:
+        as_of_node = elem.find("as_of_date")
+    if as_of_node is not None and as_of_node.text is not None:
+        data["as_of_date"] = normalize_value(as_of_node.text)
+    else:
+        data["as_of_date"] = None
+    
     # capture any other child tags as indicators / features
     indicators = {}
     for child in elem:
         tag = child.tag.lower()
-        if tag in ("reasoning", "support", "action"):
+        # Skip already processed tags
+        if tag in ("reasoning", "support", "action", "as-of-date", "as_of_date"):
             continue
         # try to read numeric or text
         text = child.text.strip() if child.text else None
@@ -90,11 +101,13 @@ def parse_file(path):
         for idx, th in enumerate(thesis_nodes):
             rec = {}
             rec.update(parse_thesis(th))
-            # attempt to find ticker/as-of-date on parent or self
+            # attempt to find ticker/as-of-date on parent or self (as attributes)
             ticker = th.get("ticker") or root.get("ticker") or None
-            as_of = th.get("as-of-date") or th.get("as_of_date") or None
-            rec["ticker"] = normalize_value(ticker)
-            rec["as_of_date"] = normalize_value(as_of)
+            rec["ticker"] = normalize_value(ticker) if ticker else rec.get("ticker")
+            # Only override as_of_date if not already set by parse_thesis
+            if not rec.get("as_of_date"):
+                as_of = th.get("as-of-date") or th.get("as_of_date") or None
+                rec["as_of_date"] = normalize_value(as_of)
             rec["raw_xml_index"] = idx
             records.append(rec)
         return records
@@ -118,9 +131,10 @@ def parse_file(path):
             rec = {"ticker": ticker}
             # parse content
             rec.update(parse_thesis(th))
-            # as-of-date can be on thesis or on parent
-            as_of = th.get("as-of-date") or th.get("as_of_date") or sp.get("as-of-date") or sp.get("as_of_date") or None
-            rec["as_of_date"] = normalize_value(as_of)
+            # as-of-date can be on thesis or on parent (as attribute) - only override if not already set
+            if not rec.get("as_of_date"):
+                as_of = th.get("as-of-date") or th.get("as_of_date") or sp.get("as-of-date") or sp.get("as_of_date") or None
+                rec["as_of_date"] = normalize_value(as_of)
             rec["raw_xml_index"] = idx
             records.append(rec)
 
