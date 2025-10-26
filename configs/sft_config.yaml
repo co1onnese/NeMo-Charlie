@@ -44,4 +44,4 @@ eval_steps: 500
 save_steps: 500
 output_dir: "checkpoints/sft-deepseek-v3.2exp-longctx"
 use_wandb: true
-wandb_project: "DeepSeek_
+wandb_project: "DeepSeek_SFT_Financial_Trading"
