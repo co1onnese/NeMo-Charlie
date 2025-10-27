@@ -38,52 +38,27 @@ def patched_transformer_config_init(self, *args, **kwargs):
 tf_config_module.TransformerConfig.__init__ = patched_transformer_config_init
 print("[INFO] ✓ Forced persist_layer_norm=False and gradient_accumulation_fusion=False in TransformerConfig")
 
-# ADDITIONAL FIX: Patch ColumnParallelLinear to disable gradient_accumulation_fusion
-import megatron.core.tensor_parallel.layers as tp_layers
-original_column_parallel_init = tp_layers.ColumnParallelLinear.__init__
+# AGGRESSIVE FIX: Patch the DeepSeekConfig dataclass field default BEFORE NeMo loads
+# This is the nuclear option - directly modify the dataclass field
+import megatron.core.model_parallel_config as mp_config_module
+if hasattr(mp_config_module, 'ModelParallelConfig'):
+    mpc_class = mp_config_module.ModelParallelConfig
+    if hasattr(mpc_class, '__dataclass_fields__') and 'gradient_accumulation_fusion' in mpc_class.__dataclass_fields__:
+        # Directly modify the field default
+        field = mpc_class.__dataclass_fields__['gradient_accumulation_fusion']
+        field.default = False
+        print("[INFO] ✓ Modified ModelParallelConfig.gradient_accumulation_fusion default to False")
 
-def patched_column_parallel_init(self, *args, **kwargs):
-    """Force gradient_accumulation_fusion=False to avoid APEX CUDA extension requirement
-    
-    ColumnParallelLinear reads gradient_accumulation_fusion from the config object,
-    so we need to patch the config if it's passed.
-    """
-    # If config is passed as kwarg or positional arg, patch it
-    config = kwargs.get('config', None)
-    if config is None and len(args) > 5:  # config is typically a later positional arg
-        config = args[5] if len(args) > 5 else None
-    
-    if config and hasattr(config, 'gradient_accumulation_fusion'):
-        # Monkey patch the config object's attribute
-        object.__setattr__(config, 'gradient_accumulation_fusion', False)
-    
-    if 'gradient_accumulation_fusion' in kwargs:
-        kwargs['gradient_accumulation_fusion'] = False
-    
-    return original_column_parallel_init(self, *args, **kwargs)
-
-tp_layers.ColumnParallelLinear.__init__ = patched_column_parallel_init
-print("[INFO] ✓ Patched ColumnParallelLinear to disable gradient_accumulation_fusion")
-
-# Also patch RowParallelLinear for consistency
-original_row_parallel_init = tp_layers.RowParallelLinear.__init__
-
-def patched_row_parallel_init(self, *args, **kwargs):
-    """Force gradient_accumulation_fusion=False to avoid APEX CUDA extension requirement"""
-    config = kwargs.get('config', None)
-    if config is None and len(args) > 5:
-        config = args[5] if len(args) > 5 else None
-    
-    if config and hasattr(config, 'gradient_accumulation_fusion'):
-        object.__setattr__(config, 'gradient_accumulation_fusion', False)
-    
-    if 'gradient_accumulation_fusion' in kwargs:
-        kwargs['gradient_accumulation_fusion'] = False
-    
-    return original_row_parallel_init(self, *args, **kwargs)
-
-tp_layers.RowParallelLinear.__init__ = patched_row_parallel_init
-print("[INFO] ✓ Patched RowParallelLinear to disable gradient_accumulation_fusion")
+# Also patch the __post_init__ to force it
+original_mpc_post_init = getattr(mp_config_module.ModelParallelConfig, '__post_init__', None)
+if original_mpc_post_init:
+    def patched_mpc_post_init(self):
+        """Force gradient_accumulation_fusion=False before calling original __post_init__"""
+        object.__setattr__(self, 'gradient_accumulation_fusion', False)
+        if original_mpc_post_init:
+            return original_mpc_post_init(self)
+    mp_config_module.ModelParallelConfig.__post_init__ = patched_mpc_post_init
+    print("[INFO] ✓ Patched ModelParallelConfig.__post_init__ to force gradient_accumulation_fusion=False")
 
 # Try to import NeMo LLM, handle modelopt issues
 try:
@@ -110,12 +85,16 @@ except Exception as e:
 def import_checkpoint(
     bf16_dir: Path,
     output_path: Path,
+    tensor_parallel: int = 8,
+    pipeline_parallel: int = 1,
 ) -> None:
     """Import DeepSeek V3 BF16 checkpoint to NeMo format.
 
     Args:
         bf16_dir: Path to HuggingFace BF16 checkpoint directory
         output_path: Path where .nemo archive will be written
+        tensor_parallel: Tensor model parallel size (default: 8 for 8xH100)
+        pipeline_parallel: Pipeline model parallel size (default: 1)
     """
     if not bf16_dir.exists():
         raise FileNotFoundError(f"BF16 directory not found: {bf16_dir}")
@@ -128,22 +107,44 @@ def import_checkpoint(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print("[INFO] Importing BF16 checkpoint into NeMo archive…")
+    print("[INFO] ========================================")
+    print("[INFO] NeMo DeepSeek-V3 Import with Tensor Parallelism")
+    print("[INFO] ========================================")
     print(f"[INFO] BF16 source: {bf16_dir}")
     print(f"[INFO] Output archive: {output_path}")
-    print("[INFO] Using DeepSeekV3Config with gradient_accumulation_fusion=False")
-    print("[INFO] This may take 5-15 minutes...")
+    print(f"[INFO] Tensor Parallel Size: {tensor_parallel}")
+    print(f"[INFO] Pipeline Parallel Size: {pipeline_parallel}")
+    print("[INFO] gradient_accumulation_fusion: False (no APEX required)")
+    print("[INFO] ========================================")
+    print("[INFO] Model size: 671B parameters (~1.3TB)")
+    print("[INFO] This will take 10-30 minutes to load and convert...")
+    print("[INFO] ========================================")
 
-    # Disable gradient_accumulation_fusion since APEX with CUDA extensions is not available
+    # CRITICAL: Use tensor parallelism to split 671B model across GPUs
+    # Without TP=8, the 1.3TB model cannot fit in memory
     # Reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
+    config = llm.DeepSeekV3Config(
+        gradient_accumulation_fusion=False,
+        tensor_model_parallel_size=tensor_parallel,
+        pipeline_model_parallel_size=pipeline_parallel,
+    )
+    
+    print(f"[INFO] Creating DeepSeekModel with TP={tensor_parallel}, PP={pipeline_parallel}")
+    model = llm.DeepSeekModel(config)
+    
+    print("[INFO] Starting checkpoint import (this is the slow part)...")
+    print("[INFO] Progress: Loading 163 safetensors files (~1.3TB)...")
+    
     llm.import_ckpt(
-        model=llm.DeepSeekModel(llm.DeepSeekV3Config(gradient_accumulation_fusion=False)),
+        model=model,
         source=f"hf://{bf16_dir.absolute()}",
         output_path=str(output_path),
     )
 
-    print("[INFO] Import complete.")
-    print(f"[INFO] NeMo checkpoint saved to: {output_path}")
+    print("[INFO] ========================================")
+    print("[INFO] ✓ Import complete!")
+    print(f"[INFO] ✓ NeMo checkpoint saved to: {output_path}")
+    print("[INFO] ========================================")
 
 
 def main() -> None:
@@ -161,24 +162,36 @@ def main() -> None:
         required=True,
         help="Path where .nemo archive will be written"
     )
+    parser.add_argument(
+        "--tensor-parallel",
+        type=int,
+        default=8,
+        help="Tensor model parallel size (default: 8 for 8×H100). REQUIRED for 671B model."
+    )
+    parser.add_argument(
+        "--pipeline-parallel",
+        type=int,
+        default=1,
+        help="Pipeline model parallel size (default: 1)"
+    )
     # Legacy arguments kept for backwards compatibility but ignored
-    parser.add_argument("--tensor-parallel", type=int, default=8, help=argparse.SUPPRESS)
-    parser.add_argument("--pipeline-parallel", type=int, default=1, help=argparse.SUPPRESS)
     parser.add_argument("--sequence-length", type=int, default=131072, help=argparse.SUPPRESS)
     parser.add_argument("--model-name", default="deepseek_v3", help=argparse.SUPPRESS)
     parser.add_argument("--override", action="append", default=[], help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
-    # Note: Tensor/pipeline parallel settings are now handled by NeMo's DeepSeekV3Config
-    # and the training recipe, not at import time
-    if args.tensor_parallel != 8 or args.pipeline_parallel != 1:
-        print("[WARNING] --tensor-parallel and --pipeline-parallel are deprecated.")
-        print("[WARNING] Parallelism is configured in the NeMo training recipe, not at import.")
+    print(f"[INFO] Using Tensor Parallel={args.tensor_parallel}, Pipeline Parallel={args.pipeline_parallel}")
+    print("[INFO] For 671B DeepSeek-V3: TP=8 is recommended for 8×H100 (splits model across GPUs)")
+    print("[INFO] This script must be run with torchrun for multi-GPU:")
+    print("[INFO]   torchrun --nproc_per_node=8 scripts/convert/import_to_nemo.py ...")
+    print()
 
     import_checkpoint(
         bf16_dir=Path(args.bf16_dir),
         output_path=Path(args.output),
+        tensor_parallel=args.tensor_parallel,
+        pipeline_parallel=args.pipeline_parallel,
     )
 
 
