@@ -1,6 +1,13 @@
 # NeMo and supporting packages for DeepSeek-V3 fine-tuning
+#
+# Installation order matters:
+#   1. Install PyTorch first (via setup_env.sh with INSTALL_GPU_TORCH=true)
+#   2. Then install these requirements
+#
+# Usage:
+#   INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh
 
-# Core NeMo package
+# Core NeMo package (includes many dependencies)
 nemo-toolkit[all]
 
 # PyTorch Lightning (required by NeMo but not auto-installed)
@@ -20,6 +27,9 @@ ninja>=1.11.0
 
 # Triton (for custom kernels, needed for FP8 conversion)
 triton>=2.1.0
+
+# NVIDIA utilities (replaces deprecated pynvml)
+nvidia-ml-py>=12.535.0
 
 # Optional but recommended for performance
 # apex  # Install manually from NVIDIA repo if needed

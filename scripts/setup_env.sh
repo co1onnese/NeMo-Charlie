@@ -1,11 +1,11 @@
 #!/bin/bash
 # setup_env.sh
-# Setup Python virtual environment for SFT Trading Pipeline
+# Setup Python virtual environment for NeMo-Charlie Trading Pipeline
 
 set -e  # Exit on error
 
 echo "========================================="
-echo "SFT Trading Pipeline - Environment Setup"
+echo "NeMo-Charlie Pipeline - Environment Setup"
 echo "========================================="
 
 # Check Python version
@@ -59,10 +59,13 @@ fi
 echo ""
 echo "Verifying installations..."
 
-python3 << 'EOF'
-import sys
+INSTALL_NEMO_VAR="${INSTALL_NEMO:-false}"
 
-def check_import(module_name, display_name=None):
+python3 << EOF
+import sys
+import os
+
+def check_import(module_name, display_name=None, required=True):
     if display_name is None:
         display_name = module_name
     try:
@@ -71,37 +74,49 @@ def check_import(module_name, display_name=None):
         print(f"✓ {display_name}: {version}")
         return True
     except ImportError as e:
-        print(f"✗ {display_name}: FAILED - {e}")
+        if required:
+            print(f"✗ {display_name}: FAILED - {e}")
+        else:
+            print(f"○ {display_name}: not installed (optional)")
         return False
 
 print("\nCore dependencies:")
 check_import('torch', 'PyTorch')
 check_import('transformers', 'Transformers')
 check_import('datasets', 'Datasets')
-check_import('trl', 'TRL')
-check_import('peft', 'PEFT')
 
 print("\nData processing:")
 check_import('pandas', 'Pandas')
 check_import('numpy', 'NumPy')
+check_import('pyarrow', 'PyArrow')
 
 print("\nUtilities:")
 check_import('dotenv', 'python-dotenv')
 check_import('yaml', 'PyYAML')
 check_import('tqdm', 'tqdm')
 
-print("\nOptional:")
-try:
-    import yfinance
-    print(f"✓ yfinance: {yfinance.__version__}")
-except:
-    print("○ yfinance: not installed (optional)")
+# Check NeMo dependencies if INSTALL_NEMO=true
+install_nemo = os.environ.get('INSTALL_NEMO_VAR', 'false') == 'true'
+if install_nemo:
+    print("\nNeMo dependencies:")
+    check_import('lightning', 'Lightning')
+    check_import('pytorch_lightning', 'PyTorch Lightning')
+    check_import('megatron.core', 'Megatron-Core')
+    check_import('nemo', 'NeMo')
+    check_import('omegaconf', 'OmegaConf')
+    check_import('hydra', 'Hydra')
 
-try:
-    import wandb
-    print(f"✓ wandb: {wandb.__version__}")
-except:
-    print("○ wandb: not installed (optional)")
+    # Verify NeMo llm module works
+    try:
+        from nemo.collections import llm
+        print("✓ NeMo LLM module: available")
+    except Exception as e:
+        print(f"✗ NeMo LLM module: FAILED - {e}")
+
+print("\nOptional dependencies:")
+check_import('yfinance', 'yfinance', required=False)
+check_import('wandb', 'WandB', required=False)
+check_import('tensorboard', 'TensorBoard', required=False)
 
 EOF
 
@@ -116,3 +131,17 @@ echo ""
 echo "To deactivate, run:"
 echo "  deactivate"
 echo ""
+
+if [[ "${INSTALL_NEMO:-false}" == "true" ]]; then
+    echo "NeMo Framework installed for DeepSeek-V3 training."
+    echo ""
+    echo "Next steps:"
+    echo "  1. Copy .env.example to .env and configure"
+    echo "  2. Run the full pipeline:"
+    echo "     bash scripts/run_full_pipeline.sh"
+    echo ""
+else
+    echo "For NeMo training support, re-run with:"
+    echo "  INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh"
+    echo ""
+fi
