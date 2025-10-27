@@ -74,3 +74,5 @@ wandb/
 # Cache
 .cache/
 *.cache
+log_*.txt
+pipeline_*.log
