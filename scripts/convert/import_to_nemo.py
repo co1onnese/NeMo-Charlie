@@ -23,18 +23,67 @@ import sys
 from pathlib import Path
 
 # CRITICAL FIX: Monkey patch TransformerConfig before NeMo imports it
-# This forces persist_layer_norm=False at the Megatron level
-print("[INFO] Applying persist_layer_norm fix...")
+# This forces persist_layer_norm=False and gradient_accumulation_fusion=False at the Megatron level
+print("[INFO] Applying Megatron-Core compatibility patches...")
 import megatron.core.transformer.transformer_config as tf_config_module
 original_transformer_config_init = tf_config_module.TransformerConfig.__init__
 
 def patched_transformer_config_init(self, *args, **kwargs):
-    """Force persist_layer_norm=False for PyTorch LayerNorm compatibility"""
+    """Force persist_layer_norm=False for PyTorch LayerNorm compatibility
+    and gradient_accumulation_fusion=False to avoid APEX CUDA extension requirement"""
     kwargs['persist_layer_norm'] = False
+    kwargs['gradient_accumulation_fusion'] = False
     return original_transformer_config_init(self, *args, **kwargs)
 
 tf_config_module.TransformerConfig.__init__ = patched_transformer_config_init
-print("[INFO] ✓ Forced persist_layer_norm=False in TransformerConfig")
+print("[INFO] ✓ Forced persist_layer_norm=False and gradient_accumulation_fusion=False in TransformerConfig")
+
+# ADDITIONAL FIX: Patch ColumnParallelLinear to disable gradient_accumulation_fusion
+import megatron.core.tensor_parallel.layers as tp_layers
+original_column_parallel_init = tp_layers.ColumnParallelLinear.__init__
+
+def patched_column_parallel_init(self, *args, **kwargs):
+    """Force gradient_accumulation_fusion=False to avoid APEX CUDA extension requirement
+    
+    ColumnParallelLinear reads gradient_accumulation_fusion from the config object,
+    so we need to patch the config if it's passed.
+    """
+    # If config is passed as kwarg or positional arg, patch it
+    config = kwargs.get('config', None)
+    if config is None and len(args) > 5:  # config is typically a later positional arg
+        config = args[5] if len(args) > 5 else None
+    
+    if config and hasattr(config, 'gradient_accumulation_fusion'):
+        # Monkey patch the config object's attribute
+        object.__setattr__(config, 'gradient_accumulation_fusion', False)
+    
+    if 'gradient_accumulation_fusion' in kwargs:
+        kwargs['gradient_accumulation_fusion'] = False
+    
+    return original_column_parallel_init(self, *args, **kwargs)
+
+tp_layers.ColumnParallelLinear.__init__ = patched_column_parallel_init
+print("[INFO] ✓ Patched ColumnParallelLinear to disable gradient_accumulation_fusion")
+
+# Also patch RowParallelLinear for consistency
+original_row_parallel_init = tp_layers.RowParallelLinear.__init__
+
+def patched_row_parallel_init(self, *args, **kwargs):
+    """Force gradient_accumulation_fusion=False to avoid APEX CUDA extension requirement"""
+    config = kwargs.get('config', None)
+    if config is None and len(args) > 5:
+        config = args[5] if len(args) > 5 else None
+    
+    if config and hasattr(config, 'gradient_accumulation_fusion'):
+        object.__setattr__(config, 'gradient_accumulation_fusion', False)
+    
+    if 'gradient_accumulation_fusion' in kwargs:
+        kwargs['gradient_accumulation_fusion'] = False
+    
+    return original_row_parallel_init(self, *args, **kwargs)
+
+tp_layers.RowParallelLinear.__init__ = patched_row_parallel_init
+print("[INFO] ✓ Patched RowParallelLinear to disable gradient_accumulation_fusion")
 
 # Try to import NeMo LLM, handle modelopt issues
 try:
