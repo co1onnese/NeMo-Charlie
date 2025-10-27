@@ -2,24 +2,24 @@
 """Import converted DeepSeek-V3 BF16 weights into a NeMo .nemo archive.
 
 This script assumes the FP8→BF16 conversion has already been performed using
-`scripts/convert/fp8_cast_bf16.py`. It wraps the NeMo LLM import utility with
-project-specific defaults (8-way tensor parallel for an 8×H100 topology).
+`scripts/convert/fp8_cast_bf16.py`. It uses the NeMo LLM import API to convert
+HuggingFace format checkpoints to NeMo's .nemo archive format.
 
 Example:
     python scripts/convert/import_to_nemo.py \
-        --bf16-dir checkpoints/bf16/deepseek-v3 \
-        --output checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo
+        --bf16-dir /data/models/deepseek-v3-bf16 \
+        --output /data/models/deepseek-v3-base_tp8_pp1.nemo
 
 The script performs minimal validation of the input directory layout but does
 not attempt to download or convert weights itself. Install NeMo and its
 dependencies prior to running (see `requirements_nemo.txt`).
+
+Official NeMo docs: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
 """
 
 import argparse
-import json
 import os
 from pathlib import Path
-from typing import Optional
 
 from nemo.collections import llm
 
@@ -27,70 +27,75 @@ from nemo.collections import llm
 def import_checkpoint(
     bf16_dir: Path,
     output_path: Path,
-    tensor_parallel: int = 8,
-    pipeline_parallel: int = 1,
-    sequence_length: int = 131072,
-    model_name: str = "deepseek_v3",
-    extra_overrides: Optional[dict] = None,
 ) -> None:
+    """Import DeepSeek V3 BF16 checkpoint to NeMo format.
+
+    Args:
+        bf16_dir: Path to HuggingFace BF16 checkpoint directory
+        output_path: Path where .nemo archive will be written
+    """
     if not bf16_dir.exists():
         raise FileNotFoundError(f"BF16 directory not found: {bf16_dir}")
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Verify required files exist
+    required_files = ["config.json", "tokenizer.json"]
+    for file in required_files:
+        if not (bf16_dir / file).exists():
+            raise FileNotFoundError(f"Required file not found: {bf16_dir / file}")
 
-    overrides = {
-        "tensor_model_parallel_size": tensor_parallel,
-        "pipeline_model_parallel_size": pipeline_parallel,
-        "sequence_parallel": True,
-        "max_position_embeddings": sequence_length,
-    }
-    if extra_overrides:
-        overrides.update(extra_overrides)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print("[INFO] Importing BF16 checkpoint into NeMo archive…")
     print(f"[INFO] BF16 source: {bf16_dir}")
     print(f"[INFO] Output archive: {output_path}")
-    print(f"[INFO] Overrides: {json.dumps(overrides, indent=2)}")
+    print("[INFO] Using DeepSeekV3Config with default settings")
+    print("[INFO] This may take 5-15 minutes...")
 
+    # Use the official NeMo API for DeepSeek V3
+    # Reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
     llm.import_ckpt(
-        checkpoint_dir=str(bf16_dir),
+        model=llm.DeepSeekModel(llm.DeepSeekV3Config()),
+        source=f"hf://{bf16_dir.absolute()}",
         output_path=str(output_path),
-        model_name=model_name,
-        config_overrides=overrides,
     )
 
     print("[INFO] Import complete.")
+    print(f"[INFO] NeMo checkpoint saved to: {output_path}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import DeepSeek BF16 weights into NeMo")
-    parser.add_argument("--bf16-dir", required=True, help="Directory containing BF16 safetensors")
-    parser.add_argument("--output", required=True, help="Path to write .nemo archive")
-    parser.add_argument("--tensor-parallel", type=int, default=8, help="Tensor parallel world size")
-    parser.add_argument("--pipeline-parallel", type=int, default=1, help="Pipeline parallel size")
-    parser.add_argument("--sequence-length", type=int, default=131072, help="Maximum context length")
-    parser.add_argument("--model-name", default="deepseek_v3", help="NeMo model recipe identifier")
-    parser.add_argument(
-        "--override",
-        action="append",
-        default=[],
-        help="Additional JSON overrides (key=value JSON), e.g. parallel_attention=True",
+    parser = argparse.ArgumentParser(
+        description="Import DeepSeek V3 BF16 weights into NeMo format",
+        epilog="Example: python import_to_nemo.py --bf16-dir /data/models/deepseek-v3-bf16 --output /data/models/deepseek-v3-base.nemo"
     )
+    parser.add_argument(
+        "--bf16-dir",
+        required=True,
+        help="Directory containing BF16 HuggingFace checkpoint (config.json, safetensors, etc.)"
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Path where .nemo archive will be written"
+    )
+    # Legacy arguments kept for backwards compatibility but ignored
+    parser.add_argument("--tensor-parallel", type=int, default=8, help=argparse.SUPPRESS)
+    parser.add_argument("--pipeline-parallel", type=int, default=1, help=argparse.SUPPRESS)
+    parser.add_argument("--sequence-length", type=int, default=131072, help=argparse.SUPPRESS)
+    parser.add_argument("--model-name", default="deepseek_v3", help=argparse.SUPPRESS)
+    parser.add_argument("--override", action="append", default=[], help=argparse.SUPPRESS)
+
     args = parser.parse_args()
 
-    overrides_dict = {}
-    for override in args.override:
-        key, value = override.split("=", maxsplit=1)
-        overrides_dict[key] = json.loads(value)
+    # Note: Tensor/pipeline parallel settings are now handled by NeMo's DeepSeekV3Config
+    # and the training recipe, not at import time
+    if args.tensor_parallel != 8 or args.pipeline_parallel != 1:
+        print("[WARNING] --tensor-parallel and --pipeline-parallel are deprecated.")
+        print("[WARNING] Parallelism is configured in the NeMo training recipe, not at import.")
 
     import_checkpoint(
         bf16_dir=Path(args.bf16_dir),
         output_path=Path(args.output),
-        tensor_parallel=args.tensor_parallel,
-        pipeline_parallel=args.pipeline_parallel,
-        sequence_length=args.sequence_length,
-        model_name=args.model_name,
-        extra_overrides=overrides_dict,
     )
 
 
