@@ -112,13 +112,31 @@ if [ "$SKIP_MODEL_SETUP" = false ]; then
 
             echo "✓ Download complete"
         else
-            echo "✓ DeepSeek-V3 source already exists at: $MODEL_SOURCE_DIR"
+            echo "0.1: Download already complete"
+            echo "     ✓ DeepSeek-V3 source exists at: $MODEL_SOURCE_DIR"
+            echo "     To re-download: rm -rf $MODEL_SOURCE_DIR"
         fi
 
         echo ""
 
         # 0.2: Convert FP8 to BF16
-        if [ ! -d "$MODEL_BF16_DIR" ] || [ ! -f "$MODEL_BF16_DIR/config.json" ]; then
+        # Check if BF16 conversion is already complete by verifying required files
+        BF16_COMPLETE=true
+        REQUIRED_BF16_FILES=("config.json" "tokenizer.json")
+
+        if [ ! -d "$MODEL_BF16_DIR" ]; then
+            BF16_COMPLETE=false
+        else
+            for file in "${REQUIRED_BF16_FILES[@]}"; do
+                if [ ! -f "$MODEL_BF16_DIR/$file" ]; then
+                    echo "   Missing required file: $file"
+                    BF16_COMPLETE=false
+                    break
+                fi
+            done
+        fi
+
+        if [ "$BF16_COMPLETE" = false ]; then
             echo "0.2: Converting FP8 weights to BF16..."
             echo "     This requires GPU and may take 15-30 minutes."
             echo ""
@@ -136,7 +154,10 @@ if [ "$SKIP_MODEL_SETUP" = false ]; then
                 echo "✓ BF16 conversion complete"
             fi
         else
-            echo "✓ BF16 model already exists at: $MODEL_BF16_DIR"
+            echo "0.2: BF16 conversion already complete"
+            echo "     ✓ BF16 model exists at: $MODEL_BF16_DIR"
+            echo "     ✓ All required files present (config.json, tokenizer.json, etc.)"
+            echo "     To re-convert: rm -rf $MODEL_BF16_DIR"
         fi
 
         echo ""
@@ -166,7 +187,9 @@ if [ "$SKIP_MODEL_SETUP" = false ]; then
                 echo "✓ NeMo import complete"
             fi
         else
-            echo "✓ NeMo model already exists at: $MODEL_NEMO_PATH"
+            echo "0.3: NeMo import already complete"
+            echo "     ✓ NeMo model exists at: $MODEL_NEMO_PATH"
+            echo "     To re-import: rm -f $MODEL_NEMO_PATH"
         fi
 
         echo ""
