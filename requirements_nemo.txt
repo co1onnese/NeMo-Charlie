@@ -7,8 +7,10 @@
 # Usage:
 #   INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh
 
-# Core NeMo package (includes many dependencies)
-nemo-toolkit[all]
+# Core NeMo package
+# Note: Using base package instead of [all] to avoid optional dependencies
+# that require compilation (like mamba-ssm) and may fail to build
+nemo-toolkit
 
 # PyTorch Lightning (required by NeMo but not auto-installed)
 lightning>=2.1.0
@@ -38,3 +40,4 @@ nvidia-modelopt>=0.37.0
 # apex  # Install manually from NVIDIA repo if needed
 # flash-attn>=2.0.0  # Install manually if needed
 # transformer-engine  # For optimized attention
+# mamba-ssm  # State space models (requires C++ compilation, may fail on some systems)
