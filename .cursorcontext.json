@@ -1,542 +1,412 @@
 {
   "project": {
-    "name": "SFT-Charlie: Financial Trading LLM Pipeline",
+    "name": "NeMo-Charlie",
     "type": "Machine Learning Pipeline",
-    "language": "Python",
-    "framework": "NVIDIA NeMo + Megatron-Core",
-    "description": "A complete supervised fine-tuning pipeline for training financial trading models using DeepSeek-V3 via NVIDIA NeMo, with comprehensive data processing, evaluation, and backtesting capabilities.",
-    "architecture": "ML Pipeline",
-    "phase": "Phase 1 (SFT) - Implementation Complete",
-    "status": "Ready for GPU Training"
+    "domain": "Financial trading model fine-tuning and evaluation",
+    "languages": ["Python", "Shell"],
+    "frameworks": ["NVIDIA NeMo", "Megatron-Core", "PyTorch"],
+    "description": "Production-grade pipeline that converts DeepSeek-V3 checkpoints, prepares financial thesis data, fine-tunes the model with NeMo, evaluates NLP and financial metrics, and backtests trading strategies.",
+    "architecture": "Sequential ML pipeline with data conversion, training, evaluation, and backtesting stages",
+    "status": "Active development",
+    "entry_points": {
+      "data_processing": "src/parsers/xml_to_jsonl.py",
+      "dataset_build": "src/data/convert_dataset.py",
+      "nemo_export": "src/data/export_nemo_dataset.py",
+      "training": "src/train/train_nemo.py",
+      "evaluation": "src/eval/evaluate_nemo.py",
+      "backtesting": "src/backtest/trading_backtest.py",
+      "full_pipeline": "scripts/run_full_pipeline.sh"
+    }
   },
-
   "directory_structure": {
-    "root": "/opt/SFT-Charlie",
-    "data": {
-      "raw_xml": "Raw XML thesis files from financial analysis",
-      "jsonl": "Converted JSONL records (one per thesis)",
-      "hf_datasets": "HuggingFace Arrow format datasets",
-      "price_cache": "Cached financial price data (eodhd + yfinance)",
-      "samples": "Example/test data files"
-    },
-    "src": {
-      "parsers": "XML parsing and data ingestion",
-      "data": "Dataset processing and price data management",
-      "train": "SFT training scripts",
-      "eval": "Model evaluation and metrics",
-      "backtest": "Portfolio backtesting simulation",
-      "utils": "Shared utilities and helpers"
-    },
-    "configs": "YAML configuration files",
-    "scripts": "Automation scripts",
-    "checkpoints": "Saved model weights",
-    "results": "Evaluation outputs",
-    "backtests": "Backtesting results",
-    "logs": "Runtime logs",
-    "tests": "Unit tests"
-  },
-
-  "core_components": {
-    "xml_to_jsonl.py": {
-      "responsibility": "Converts XML thesis files to JSONL format for dataset creation",
-      "natural_language": "This module parses XML files containing financial analysis theses, extracts structured information like reasoning, support, and trading actions, and converts them into a standardized JSONL format that can be processed by machine learning models.",
-      "key_functions": [
-        "parse_thesis() - Extracts reasoning/support/action from XML elements",
-        "normalize_value() - Cleans numeric and string values",
-        "iso_date_or_none() - Standardizes date formats",
-        "main() - CLI interface with validation"
-      ],
-      "inputs": "XML files with <stock-theses> and <thesis> elements",
-      "outputs": "JSONL file with instruction/input/output fields",
-      "dependencies": ["xml.etree.ElementTree", "pathlib", "dotenv"],
-      "error_handling": "Validates XML structure, handles malformed dates, logs parsing errors"
-    },
-
-    "convert_dataset.py": {
-      "responsibility": "Creates time-based train/validation/test splits with strict data leakage prevention",
-      "natural_language": "This critical component takes JSONL data and creates properly time-ordered datasets, ensuring that future data never leaks into training. It splits the data chronologically and saves it in HuggingFace's efficient Arrow format.",
-      "key_functions": [
-        "create_time_splits() - Implements chronological train/val/test division",
-        "validate_time_splits() - Prevents data leakage between splits",
-        "normalize_records() - Cleans and validates all thesis records",
-        "main() - CLI with comprehensive validation"
-      ],
-      "inputs": "JSONL file with thesis records",
-      "outputs": "HuggingFace DatasetDict with train/validation/test splits",
-      "dependencies": ["datasets", "pandas", "pathlib", "dotenv"],
-      "error_handling": "Validates date ranges, checks for duplicates, ensures minimum sample counts per split"
-    },
-
-    "tokenize_and_shard.py": {
-      "responsibility": "Tokenizes dataset with special XML tags and action tokens for DeepSeek model",
-      "natural_language": "This module prepares the dataset for training by converting text into tokens that the DeepSeek model can understand. It adds special tokens for XML structure and trading actions, enabling the model to learn structured financial reasoning.",
-      "key_functions": [
-        "setup_tokenizer() - Adds XML and action tokens to vocabulary",
-        "format_example() - Converts records to instruction-response format",
-        "tokenize_function() - Handles tokenization with proper labels",
-        "main() - Batch processing with multiprocessing"
-      ],
-      "inputs": "HuggingFace dataset with instruction/input/output fields",
-      "outputs": "Tokenized Arrow shards ready for training",
-      "dependencies": ["transformers", "datasets", "pathlib", "dotenv"],
-      "special_tokens": ["<reasoning>", "</reasoning>", "<support>", "</support>", "<action>", "</action>", "<STRONG_BUY>", "<BUY>", "<HOLD>", "<SELL>", "<STRONG_SELL>"]
-    },
-
-    "train_nemo.py": {
-      "responsibility": "Executes supervised fine-tuning of DeepSeek-V3 using NVIDIA NeMo",
-      "natural_language": "This is the core training script that takes the prepared NeMo JSONL dataset and fine-tunes DeepSeek-V3 using NeMo's distributed training framework with full-parameter fine-tuning or optional LoRA adapters for 8×H100 topology.",
-      "key_functions": [
-        "build_data_module() - Creates NeMo FineTuningDataModule",
-        "run_training() - Orchestrates NeMo recipe execution",
-        "main() - Entry point with config loading and manifest generation"
-      ],
-      "inputs": "NeMo JSONL dataset + .nemo checkpoint + YAML config",
-      "outputs": "Fine-tuned .nemo archive (~20GB full / ~500MB LoRA)",
-      "dependencies": ["nemo-toolkit", "megatron-core", "torch", "omegaconf"],
-      "hyperparameters": {
-        "learning_rate": "5e-6 (full) / 1e-4 (LoRA)",
-        "max_length": 65536,
-        "batch_size": "1 micro, 128 global",
-        "tensor_parallel": 8,
-        "pipeline_parallel": "5-8 depending on peft",
-        "epochs": 2
-      }
-    },
-
-    "export_nemo_dataset.py": {
-      "responsibility": "Exports HuggingFace datasets to NeMo-compatible JSONL format",
-      "natural_language": "This module bridges the gap between our existing HF dataset pipeline and NeMo's expected input format by converting train/validation/test splits into separate JSONL files with proper prompt/response structure.",
-      "key_functions": [
-        "format_prompt() - Converts instruction/input/output to template format",
-        "export_split() - Writes JSONL with metadata",
-        "extend_tokenizer() - Adds special tokens to base tokenizer",
-        "main() - CLI for dataset export"
-      ],
-      "inputs": "HuggingFace DatasetDict",
-      "outputs": "training.jsonl, validation.jsonl, test.jsonl + extended tokenizer",
-      "dependencies": ["datasets", "transformers"],
-      "templates": ["alpaca", "chatml", "simple"]
-    },
-
-    "evaluate_nemo.py": {
-      "responsibility": "Evaluates NeMo checkpoints using NLP metrics and financial backtesting",
-      "natural_language": "After NeMo training, this script restores the .nemo checkpoint, generates predictions on test data, and computes both language quality metrics (action prediction accuracy) and financial performance (hit rates, returns).",
-      "key_functions": [
-        "load_dataset() - Loads NeMo JSONL split",
-        "evaluate() - Generates predictions via llm.restore_model",
-        "main() - Orchestrates evaluation pipeline"
-      ],
-      "inputs": "NeMo .nemo checkpoint + JSONL test dataset",
-      "outputs": "CSV results + metrics JSON",
-      "dependencies": ["nemo-toolkit", "pandas", "sklearn"],
-      "metrics": ["Action accuracy", "Precision/Recall/F1", "Hit rate", "Mean returns", "Sharpe ratio"]
-    },
-
-    "trading_backtest.py": {
-      "responsibility": "Simulates portfolio performance based on model predictions",
-      "natural_language": "This module takes the model's trading recommendations and simulates how a portfolio would perform if following those suggestions. It accounts for transaction costs, slippage, and position sizing to give realistic performance estimates.",
-      "key_functions": [
-        "run_backtest() - Executes portfolio simulation",
-        "compute_metrics() - Calculates Sharpe, Sortino, drawdown",
-        "main() - Processes evaluation CSV into backtest results"
-      ],
-      "inputs": "Evaluation CSV with model predictions + market data",
-      "outputs": "Equity curve + risk metrics + performance statistics",
-      "dependencies": ["pandas", "numpy", "yaml"],
-      "features": ["Transaction costs", "Position sizing", "Risk controls", "Multi-asset support"]
+    "root": "/opt/NeMo-Charlie",
+    "dirs": {
+      "configs": "YAML and JSON configurations for training, evaluation, and backtesting",
+      "data": "Holds raw XML, intermediate JSONL/HF datasets, price caches, and artifacts (currently contains raw_xml.zip placeholder)",
+      "runbook": "Long-form documentation and operational runbooks",
+      "scripts": "Shell utilities for environment setup, conversion, testing, and orchestration",
+      "src": "Python source organized by pipeline stage (parsers, data, train, eval, backtest, utils)",
+      "tests": "Automated smoke tests for validation and data processing",
+      "venv": "Project virtual environment (excluded from analysis)"
     }
   },
-
-  "utility_modules": {
-    "price_data.py": {
-      "responsibility": "Manages financial price data from eodhd.com API with yfinance fallback",
-      "natural_language": "This utility handles all price data needs for evaluation and backtesting. It fetches historical stock prices from a paid API, caches them efficiently, and falls back to free sources if needed.",
-      "key_functions": [
-        "get_price_data() - Fetches and caches price history",
-        "get_forward_return() - Calculates price changes over time",
-        "batch_get_forward_returns() - Bulk price calculations"
-      ],
-      "apis": ["eodhd.com (primary)", "yfinance (fallback)"],
-      "caching": "Parquet files in data/price_cache/",
-      "rate_limiting": "100ms delays between API calls"
-    },
-
-    "validation.py": {
-      "responsibility": "Comprehensive data validation and quality assurance",
-      "natural_language": "This module ensures data quality throughout the pipeline. It validates dates, actions, XML structure, and prevents common data issues that could corrupt training or evaluation.",
-      "key_functions": [
-        "validate_date_format() - Ensures YYYY-MM-DD format",
-        "validate_action() - Checks valid trading actions",
-        "validate_time_splits() - Prevents data leakage",
-        "validate_dataset_statistics() - Quality metrics"
-      ],
-      "validations": ["Date formats", "Action values", "XML structure", "Time splits", "Data completeness"]
-    },
-
-    "logger.py": {
-      "responsibility": "Centralized logging with colorized output and file rotation",
-      "natural_language": "Provides consistent, readable logging across all modules with both console and file output. Colors make it easy to spot errors, warnings, and progress in terminal output.",
-      "key_functions": [
-        "setup_logger() - Configures logging handlers",
-        "get_logger() - Gets or creates loggers",
-        "File rotation and color formatting"
-      ]
-    },
-
-    "manifest.py": {
-      "responsibility": "Creates reproducibility manifests for all training runs",
-      "natural_language": "Generates detailed records of every training run, including git commits, configurations, data checksums, and environment info. This ensures experiments are fully reproducible and auditable.",
-      "key_functions": [
-        "get_git_info() - Captures repository state",
-        "compute_config_hash() - Hashes configurations",
-        "create_manifest() - Builds complete manifest",
-        "get_environment_info() - Records system state"
-      ],
-      "contents": ["Git commit hash", "Config checksum", "Data file hashes", "Python packages", "System info"]
-    },
-
-    "eval_utils.py": {
-      "responsibility": "Shared utilities for evaluation and price data processing",
-      "natural_language": "Contains helper functions used across evaluation components, like extracting actions from generated text and managing price data lookups.",
-      "key_functions": [
-        "extract_action() - Parses trading actions from text",
-        "Integration with price_data module"
-      ]
+  "file_summaries": {
+    "README.md": "Top-level onboarding guide covering prerequisites, pipeline stages, and troubleshooting.",
+    "STORAGE_DIAGRAM.txt": "Reference layout for storing large checkpoints and datasets (not programmatically consumed).",
+    "requirements.txt": "Base Python dependency list for data processing, evaluation, and utilities.",
+    "requirements_nemo.txt": "Additional packages needed for NeMo, Megatron-Core, Triton kernels, and model opt tooling.",
+    "configs/backtest_config.yaml": "Configures capital, transaction cost, slippage, and sizing rules for the backtest stage.",
+    "configs/eval_config.yaml": "Evaluation defaults for dataset/result paths and forward return windows.",
+    "configs/eval_config.json": "Defines label ordering and financial direction mapping used by metrics computation.",
+    "configs/nemo/finetune.yaml": "Primary NeMo fine-tuning recipe specifying dataset location, template, and training hyperparameters.",
+    "data/raw_xml.zip": "Archive placeholder for raw XML thesis inputs (must be unpacked before running pipeline).",
+    "runbook/README.md": "Detailed architecture, quick starts, hardware guidance, and troubleshooting playbook.",
+    "scripts/convert/convert_deepseek_v3.sh": "Wrapper that drives FP8 to BF16 conversion and copies necessary configuration files.",
+    "scripts/convert/fp8_cast_bf16.py": "Performs tensor-level FP8→BF16 casting with Triton kernels.",
+    "scripts/convert/import_to_nemo.py": "Imports BF16 weights into a NeMo .nemo archive with Megatron configuration patches.",
+    "scripts/convert/kernel.py": "Vendored Triton kernels for dequantization and FP8 GEMM operations.",
+    "scripts/convert/assets/kernel.py": "Original upstream Triton kernel reference kept for comparison/rollback.",
+    "scripts/convert/assets/upstream_fp8_cast_bf16.py": "Unmodified upstream conversion script stored for audit purposes.",
+    "scripts/convert/monitor_import.sh": "nvidia-smi and disk I/O monitor tailored for long-running NeMo import jobs.",
+    "scripts/cpu_comprehensive_test.sh": "Extensive CPU-mode validation script covering environment checks, parsing, dataset conversion, and reporting.",
+    "scripts/fix_modelopt.sh": "Remediation script that uninstalls/reinstalls problematic modelopt packages and validates NeMo imports.",
+    "scripts/run_full_pipeline.sh": "End-to-end orchestration with flags for smoke tests and skipping individual stages.",
+    "scripts/setup_env.sh": "Virtual environment bootstrapper with optional GPU Torch and NeMo installation flows.",
+    "scripts/smoke_test.sh": "Lightweight CPU smoke test invoking core processing steps on sample data.",
+    "src/parsers/xml_to_jsonl.py": "CLI parser converting XML theses into normalized JSONL records with validation and logging.",
+    "src/data/convert_dataset.py": "Builds HuggingFace datasets with chronological train/val/test splits and extensive validation.",
+    "src/data/export_nemo_dataset.py": "Exports HF datasets to NeMo-friendly JSONL prompts, optionally extending tokenizers.",
+    "src/data/price_data.py": "Price data client that fetches, caches, and computes forward returns via eodhd/yfinance.",
+    "src/train/train_nemo.py": "NeMo-based training entry point orchestrating recipes, data modules, and manifests.",
+    "src/eval/evaluate_nemo.py": "Runs NeMo inference, extracts actions, computes metrics, and persists evaluation outputs.",
+    "src/eval/metrics.py": "Reusable metric computations for classification accuracy and financial performance.",
+    "src/backtest/trading_backtest.py": "Event-driven backtest simulation using evaluation results and YAML-configured assumptions.",
+    "src/utils/eval_utils.py": "Helpers for action extraction and loading evaluator configuration.",
+    "src/utils/logger.py": "Centralized logging setup supporting colorized console and rotating file handlers.",
+    "src/utils/manifest.py": "Manifest utilities capturing git state, environment, and hashes for reproducibility.",
+    "src/utils/validation.py": "Validation toolkit for dates, actions, time splits, and XML structure.",
+    "tests/test_data_pipeline.py": "Pytest-compatible smoke tests covering validation helpers and XML parsing."
+  },
+  "architecture": {
+    "pattern": "Linear ML pipeline",
+    "stages": [
+      "Model conversion (FP8→BF16→NeMo)",
+      "Data ingestion (XML→JSONL)",
+      "Dataset curation (HuggingFace splits)",
+      "NeMo dataset export",
+      "Fine-tuning",
+      "Evaluation (NLP + financial)",
+      "Backtesting"
+    ],
+    "data_flow": "XML inputs → JSONL → HF DatasetDict → NeMo JSONL → Fine-tuned .nemo → Evaluation CSV/JSON → Backtest equity curves",
+    "environment_layers": {
+      "development": "CPU smoke tests, local dataset validation",
+      "training": "8×H100 node leveraging NeMo recipes",
+      "evaluation": "Distributed inference with Megatron strategy",
+      "operations": "Automation via shell scripts and manifests"
     }
   },
-
-  "configuration_files": {
-    "sft_config.yaml": {
-      "purpose": "Single GPU training configuration",
-      "key_settings": {
-        "base_model": "deepseek-ai/DeepSeek-V3.2-Exp",
-        "max_length": 65536,
-        "learning_rate": "1.5e-4",
-        "lora_r": 8,
-        "batch_size": 1,
-        "gradient_accumulation": 16,
-        "num_epochs": 2
-      }
-    },
-
-    "sft_config_multigpu.yaml": {
-      "purpose": "Multi-GPU training with DeepSpeed",
-      "key_settings": {
-        "deepspeed": "configs/deepspeed_stage3.json",
-        "per_device_train_batch_size": 2,
-        "gradient_accumulation_steps": 8
-      }
-    },
-
-    "eval_config.yaml": {
-      "purpose": "Evaluation settings",
-      "key_settings": {
-        "forward_windows": [1, 5, 10, 30],
-        "price_cache": "data/price_cache.parquet",
-        "results_csv": "results/eval_results.csv"
-      }
-    },
-
-    "backtest_config.yaml": {
-      "purpose": "Backtesting parameters",
-      "key_settings": {
-        "initial_cash": 1000000,
-        "transaction_cost_bps": 5,
-        "slippage_bps": 10,
-        "position_sizing": "fixed_pct"
-      }
-    },
-
-    ".env": {
-      "purpose": "Environment variables and secrets",
-      "key_variables": {
-        "EODHD_API_KEY": "Financial data API key",
-        "TRAIN_START_DATE": "2023-10-24",
-        "TRAIN_END_DATE": "2024-12-31",
-        "TEST_START_DATE": "2025-01-01",
-        "CPU_ONLY_MODE": "false on GPU servers"
-      }
+  "code_analysis": {
+    "typescript_javascript": {
+      "present": false,
+      "notes": "No TypeScript or JavaScript sources detected; pipeline is entirely Python and Shell based. Steps regarding React components, hooks, or TS state management are not applicable."
     }
   },
-
-  "data_flow": {
-    "raw_data": "XML thesis files → jsonl conversion → HF dataset creation → NeMo JSONL export → training",
-    "training": "NeMo JSONL dataset → NeMo fine-tuning → .nemo checkpoint (full or LoRA)",
-    "evaluation": "NeMo .nemo checkpoint + test JSONL → predictions → price data → metrics + backtest",
-    "outputs": ".nemo checkpoints (~20GB full / ~500MB LoRA) + evaluation CSVs + backtest results + logs"
-  },
-
-  "key_features": {
-    "time_based_splits": {
-      "description": "Prevents data leakage by ensuring chronological train/val/test separation",
-      "implementation": "convert_dataset.py validates no future data in training",
-      "importance": "Critical for financial time series modeling"
-    },
-
-    "special_tokens": {
-      "description": "XML structure tokens enable structured reasoning output",
-      "tokens": ["<reasoning>", "</reasoning>", "<support>", "</support>", "<action>", "</action>", "<STRONG_BUY>", "<BUY>", "<HOLD>", "<SELL>", "<STRONG_SELL>"],
-      "benefit": "Model learns to generate properly formatted financial analysis"
-    },
-
-    "dual_price_sources": {
-      "description": "Primary eodhd.com API with yfinance fallback",
-      "caching": "Efficient Parquet-based price cache",
-      "reliability": "Automatic fallback ensures data availability"
-    },
-
-    "comprehensive_evaluation": {
-      "description": "Both NLP accuracy and financial performance metrics",
-      "metrics": ["Classification accuracy", "Hit rates", "Sharpe ratios", "Portfolio returns"],
-      "validation": "Real market outcomes, not just prediction accuracy"
-    },
-
-    "reproducibility": {
-      "description": "Complete manifest system for experiment tracking",
-      "tracking": ["Git commits", "Config hashes", "Data checksums", "Environment info"],
-      "benefit": "Fully auditable and reproducible results"
-    },
-
-    "cpu_compatibility": {
-      "description": "Smoke tests run on CPU, full training on GPU",
-      "cpu_features": ["Data processing", "Validation", "Small model tests"],
-      "gpu_features": ["Full model training", "Large batch inference"]
-    }
-  },
-
-  "architecture_patterns": {
-    "pipeline_architecture": {
-      "description": "Sequential ML pipeline with clear stages",
-      "stages": ["Data Ingestion", "Preprocessing", "Training", "Evaluation", "Backtesting"],
-      "benefits": ["Modular", "Testable", "Reproducible", "Maintainable"]
-    },
-
-    "configuration_management": {
-      "description": "Environment-based configuration with YAML overrides",
-      "approach": ".env file + YAML configs + CLI args",
-      "benefits": ["Flexible", "Version controllable", "Environment agnostic"]
-    },
-
-    "error_handling": {
-      "description": "Comprehensive validation and graceful failure",
-      "patterns": ["Input validation", "API fallbacks", "Logging", "Early exit"],
-      "benefits": ["Robust", "Debuggable", "User-friendly"]
-    },
-
-    "modular_design": {
-      "description": "Single responsibility modules with clear interfaces",
-      "pattern": "src/ directory with focused modules",
-      "benefits": ["Testable", "Reusable", "Maintainable"]
-    }
-  },
-
-  "performance_optimizations": {
-    "quantization": {
-      "description": "4-bit quantization reduces memory usage by ~75%",
-      "implementation": "bitsandbytes + QLoRA",
-      "benefit": "Enables training large models on limited GPU memory"
-    },
-
-    "gradient_checkpointing": {
-      "description": "Trades compute for memory during training",
-      "benefit": "Supports longer sequences with same memory"
-    },
-
-    "efficient_data_formats": {
-      "description": "Arrow format for fast dataset loading",
-      "benefit": "Quick iteration during development"
-    },
-
-    "caching_strategy": {
-      "description": "Price data and model caching",
-      "benefit": "Fast re-runs and reduced API calls"
-    },
-
-    "batch_processing": {
-      "description": "Parallel tokenization and evaluation",
-      "benefit": "Faster processing on multi-core systems"
-    }
-  },
-
-  "security_considerations": {
-    "api_keys": {
-      "description": "Secure storage of eodhd.com API credentials",
-      "implementation": ".env file (not committed)",
-      "risk": "API key exposure",
-      "mitigation": "Environment variables, .gitignore"
-    },
-
-    "data_validation": {
-      "description": "Comprehensive input validation",
-      "implementation": "validation.py module",
-      "benefit": "Prevents malicious or malformed data"
-    },
-
-    "reproducibility": {
-      "description": "Complete audit trail of all operations",
-      "benefit": "Financial compliance and debugging"
-    }
-  },
-
-  "development_workflow": {
-    "cpu_testing": {
-      "description": "Validate pipeline components without GPU",
-      "commands": [
-        "python3 tests/test_data_pipeline.py",
-        "python3 src/parsers/xml_to_jsonl.py",
-        "python3 src/data/export_nemo_dataset.py --max_samples 10"
-      ]
-    },
-
+  "feature_breakdown": {
     "model_conversion": {
-      "description": "One-time conversion of DeepSeek FP8 to NeMo format",
-      "commands": [
-        "bash scripts/convert/convert_deepseek_v3.sh --source checkpoints/source/deepseek-v3 --output checkpoints/bf16/deepseek-v3",
-        "python3 scripts/convert/import_to_nemo.py --bf16-dir checkpoints/bf16/deepseek-v3 --output checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo"
-      ]
+      "entry_points": ["scripts/convert/convert_deepseek_v3.sh", "scripts/convert/import_to_nemo.py"],
+      "workflow": "Download FP8 checkpoint → cast tensors to BF16 → copy configs/tokenizer → import into .nemo archive with tensor parallel settings.",
+      "state_management": "Intermediate artifacts stored under checkpoints/{source,bf16,nemo}; environment variables MODEL_* influence paths.",
+      "dependencies": ["torch", "triton", "safetensors", "nvidia-modelopt", "NeMo"],
+      "error_states": ["Missing FP8 files", "modelopt import failures", "GPU memory exhaustion during conversion"],
+      "loading_states": ["Long-running conversions (Triton kernels on GPU)", "NeMo import progress logged by scripts"],
+      "notes": "Monitor via monitor_import.sh while long import runs execute."
     },
-
-    "gpu_training": {
-      "description": "Full training on 8×H100 server",
-      "commands": [
-        "INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh",
-        "python3 src/data/convert_dataset.py",
-        "python3 src/data/export_nemo_dataset.py",
-        "python3 src/train/train_nemo.py --config configs/nemo/finetune.yaml"
-      ]
+    "data_ingestion": {
+      "entry_points": ["src/parsers/xml_to_jsonl.py"],
+      "workflow": "Iterate XML files → validate structure → normalize values → emit enriched JSONL records with provenance.",
+      "state_management": "Input directory (RAW_XML_DIR) and output file (JSONL_OUTPUT) configured through CLI/env.",
+      "dependencies": ["xml.etree", "dotenv", "validation.py", "logger.py"],
+      "error_states": ["Malformed XML", "missing mandatory fields", "action='error' records skipped unless flagged"],
+      "loading_states": ["Initial XML file discovery", "per-file logging of progress"],
+      "notes": "Records include constructed instruction/input/output fields ready for SFT templates."
     },
-
+    "dataset_curation": {
+      "entry_points": ["src/data/convert_dataset.py"],
+      "workflow": "Load JSONL → normalize/validate → produce pandas DataFrame → split chronologically → save HF dataset and metadata.",
+      "state_management": "Env variables (TRAIN_END_DATE, TEST_START_DATE, VALIDATION_DAYS) determine split boundaries.",
+      "dependencies": ["pandas", "datasets", "validation.py"],
+      "error_states": ["Insufficient samples per split", "date parsing failures", "detected leakage"],
+      "loading_states": ["Large DataFrame conversions", "HF dataset materialization"],
+      "notes": "Metadata JSON records counts, date ranges, and statistics for auditing."
+    },
+    "nemo_dataset_export": {
+      "entry_points": ["src/data/export_nemo_dataset.py"],
+      "workflow": "Load HF dataset from disk → format prompt/response according to template → optionally include metadata → produce NeMo JSONL splits and stats.",
+      "state_management": "Output directory structure mirrors NeMo expectations (training/validation/test.JSONL).",
+      "dependencies": ["datasets", "transformers", "tqdm"],
+      "error_states": ["Missing splits", "tokenizer extension failure when transformers missing"],
+      "loading_states": ["Progress bars during export", "tokenizer download if invoked"],
+      "notes": "Supports smoke-test sample limits via --max_samples." 
+    },
+    "fine_tuning": {
+      "entry_points": ["src/train/train_nemo.py", "configs/nemo/finetune.yaml"],
+      "workflow": "Load YAML config → construct data module with tokenizer → instantiate NeMo finetune recipe → optionally run smoke test → execute training → write manifest.",
+      "state_management": "Manifests capture git hashes and config; output_dir stores checkpoints and logs.",
+      "dependencies": ["nemo-toolkit", "Megatron-Core", "torch", "omegaconf"],
+      "error_states": ["Unsupported recipe factory", "missing dataset path", "GPU resource exhaustion"],
+      "loading_states": ["Tokenizer loading", "NeMo recipe initialization", "long training epochs"],
+      "notes": "Smoke-test flag caps steps and disables checkpointing for quick validation." 
+    },
     "evaluation": {
-      "description": "Test trained model performance",
-      "commands": [
-        "python3 src/eval/evaluate_nemo.py",
-        "python3 src/backtest/trading_backtest.py --eval_jsonl results/eval_results.csv"
-      ]
+      "entry_points": ["src/eval/evaluate_nemo.py", "configs/eval_config.json"],
+      "workflow": "Load NeMo model under MegatronStrategy → iterate prompts → generate completions → extract actions → compute metrics and persist CSV/JSON.",
+      "state_management": "PriceDataClient caches price series; metrics JSON appended alongside CSV output.",
+      "dependencies": ["nemo", "torch", "pandas", "sklearn", "price_data.py"],
+      "error_states": ["Missing dataset split file", "price data unavailable", "model checkpoint load failure"],
+      "loading_states": ["Trainer initialization", "price cache warm-up", "generation loops"],
+      "notes": "Supports sample limiting and evaluation temperature controls." 
+    },
+    "backtesting": {
+      "entry_points": ["src/backtest/trading_backtest.py", "configs/backtest_config.yaml"],
+      "workflow": "Load evaluation CSV/JSONL → sort predictions by date → allocate positions per action → compute equity curve and metrics → write outputs.",
+      "state_management": "Backtest outputs saved under --out path with accompanying metrics JSON.",
+      "dependencies": ["pandas", "numpy", "yaml"],
+      "error_states": ["Missing realized returns", "unsupported sizing strategy"],
+      "loading_states": ["Iterating over daily signals", "metrics computation"],
+      "notes": "Designed for transparency; prints summary metrics to stdout." 
     }
   },
-
-  "maintenance_notes": {
-    "code_standards": {
-      "style": "Black formatting, comprehensive docstrings",
-      "error_handling": "Try/except with specific exceptions",
-      "logging": "Consistent logging levels and messages",
-      "imports": "Absolute imports, grouped by type"
+  "component_documentation": {
+    "src/parsers/xml_to_jsonl.py": {
+      "responsibility": "Transform raw XML thesis documents into normalized JSONL suitable for downstream dataset creation.",
+      "description": "Walks XML trees, captures reasoning/support/action plus indicators, and enriches records with prompts, outputs, and provenance IDs.",
+      "inputs_or_props": "CLI args --input_dir, --output_file, --validate, --keep_errors; uses RAW_XML_DIR/JSONL_OUTPUT env defaults.",
+      "state_management": "Writes JSONL file incrementally, counting totals and skipped errors.",
+      "child_components": ["src.utils.validation", "src.utils.logger"],
+      "event_handlers": "Command-line execution; logs progress per file.",
+      "key_functions": ["parse_thesis", "parse_file", "iso_date_or_none", "main"],
+      "error_handling": "Logs parse failures, warns on XML validation issues, skips error-tagged actions by default.",
+      "performance_considerations": "Processes files sequentially; relies on streaming writes to avoid memory overhead."
     },
-
-    "testing_strategy": {
-      "unit_tests": "Individual functions and modules",
-      "integration_tests": "End-to-end pipeline validation",
-      "smoke_tests": "CPU-compatible pipeline checks"
+    "src/data/convert_dataset.py": {
+      "responsibility": "Convert JSONL records into validated HuggingFace datasets with chronological splits.",
+      "description": "Ensures clean dates/actions, prevents leakage, and reports dataset statistics before persisting.",
+      "inputs_or_props": "CLI args --jsonl, --out_dir, --train_end, --test_start, --validation_days, --min_samples.",
+      "state_management": "Persists DatasetDict to disk and writes dataset_metadata.json.",
+      "child_components": ["src.utils.validation", "src.utils.logger"],
+      "event_handlers": "Command-line invocation; logs details at INFO level.",
+      "key_functions": ["load_jsonl", "normalize_records", "create_time_splits", "create_hf_dataset", "save_dataset_metadata"],
+      "error_handling": "Aborts on invalid dates/actions, data leakage, or insufficient split sizes.",
+      "performance_considerations": "Uses pandas conversion; may require tuning for very large datasets (chunking could be added)."
     },
-
-    "documentation": {
-      "inline": "Comprehensive docstrings and comments",
-      "external": "README, quick start, implementation status",
-      "examples": "Sample data and configuration files"
+    "src/data/export_nemo_dataset.py": {
+      "responsibility": "Render HuggingFace datasets into NeMo-compatible prompt/response JSONL splits.",
+      "description": "Supports templates (chatml/alpaca/simple), metadata embedding, tokenizer extension, and smoke-test sampling.",
+      "inputs_or_props": "CLI args include --dataset_dir, --output_dir, --template, --tokenizer, --tokenizer_out, --max_samples, --include_metadata.",
+      "state_management": "Outputs training/validation/test.jsonl and stats.json; optional tokenizer saved to disk.",
+      "child_components": ["transformers.AutoTokenizer"] ,
+      "event_handlers": "Progress tracked via tqdm while iterating dataset.",
+      "key_functions": ["extend_tokenizer", "format_prompt", "export_split", "main"],
+      "error_handling": "Validates dataset type, ensures tokenizer args are paired, sanitizes metadata values.",
+      "performance_considerations": "Streams dataset iteration; limited by I/O and dataset size."
+    },
+    "src/data/price_data.py": {
+      "responsibility": "Fetch and cache historical price data for evaluation and backtesting.",
+      "description": "Manages API usage with retries, in-memory/disk cache, fallback to yfinance, and forward return computation.",
+      "inputs_or_props": "Class parameters include api_key, cache_dir, rate_limit_delay, use_fallback; relies on EODHD_API_KEY env.",
+      "state_management": "Parquet cache per ticker plus cache_index.parquet",
+      "child_components": [],
+      "event_handlers": "Used procedurally by evaluation/backtest modules.",
+      "key_functions": ["get_price_data", "get_forward_return", "batch_get_forward_returns"],
+      "error_handling": "Retries HTTP errors, logs issues, gracefully returns None on missing data.",
+      "performance_considerations": "Cache reduces API calls; vectorized pandas operations for forward returns."
+    },
+    "src/train/train_nemo.py": {
+      "responsibility": "Launch NeMo fine-tuning for DeepSeek-V3 with configurable recipes and smoke testing.",
+      "description": "Loads config files, prepares data modules, patches recipes with manifests, and invokes NeMo training callable.",
+      "inputs_or_props": "CLI args --config, --resume, --output, --smoke-test.",
+      "state_management": "Output directory holds checkpoints, manifests, and logs.",
+      "child_components": ["nemo.collections.llm", "FineTuningDataModule", "src.utils.manifest"],
+      "event_handlers": "Relies on command-line invocation; logging through shared logger.",
+      "key_functions": ["parse_args", "load_config", "build_data_module", "run_training", "main"],
+      "error_handling": "Validates recipe factory, ensures dataset path exists, warns when running smoke tests.",
+      "performance_considerations": "Delegates heavy lifting to NeMo; supports packed sequence settings and parallelism via config."
+    },
+    "src/eval/evaluate_nemo.py": {
+      "responsibility": "Evaluate trained NeMo checkpoints, producing metrics and results for backtesting.",
+      "description": "Sets up Megatron strategy, generates completions, extracts predicted actions, and computes both NLP and financial metrics.",
+      "inputs_or_props": "CLI args include --model, --dataset, --results, --metrics-json, --split, --max-samples, --max-new-tokens, --temperature, --forward-days.",
+      "state_management": "Writes CSV and metrics JSON; leverages price cache for repeated runs.",
+      "child_components": ["PriceDataClient", "metrics.py", "eval_utils"],
+      "event_handlers": "Progress via tqdm, logs metrics summaries.",
+      "key_functions": ["parse_args", "load_dataset", "evaluate", "main"],
+      "error_handling": "Exits if dataset split missing, guards against None results, handles price fetch failures.",
+      "performance_considerations": "Batched generation limited to 1 due to large model; relies on distributed inference.")
+    },
+    "src/eval/metrics.py": {
+      "responsibility": "Provide reusable metric abstractions for evaluation outputs.",
+      "description": "Dataclasses encapsulate classification/financial metrics; functions compute accuracy, reports, hit rates, and Sharpe ratio.",
+      "inputs_or_props": "Functions accept pandas DataFrames and label mappings.",
+      "state_management": "Stateless computations returning dataclass instances.",
+      "child_components": [],
+      "event_handlers": "Called within evaluate_nemo.py.",
+      "key_functions": ["compute_classification_metrics", "compute_financial_metrics"],
+      "error_handling": "Gracefully returns zeroed metrics when no valid rows present.",
+      "performance_considerations": "Vectorized pandas/numpy operations keep metrics fast." 
+    },
+    "src/backtest/trading_backtest.py": {
+      "responsibility": "Simulate portfolio performance from evaluation outputs under configurable assumptions.",
+      "description": "Allocates positions, applies transaction costs, accumulates equity, and reports metrics.",
+      "inputs_or_props": "CLI args --eval_csv/--eval_jsonl, --config, --out.",
+      "state_management": "Outputs equity CSV and metrics JSON at requested path.",
+      "child_components": ["configs/backtest_config.yaml"],
+      "event_handlers": "Command-line invocation with stdout summaries.",
+      "key_functions": ["load_config", "run_backtest", "compute_metrics", "main"],
+      "error_handling": "Validates input presence, drops rows lacking returns, handles missing config entries.",
+      "performance_considerations": "Operates in-memory; numpy used for vectorized metric math."
+    },
+    "src/utils/eval_utils.py": {
+      "responsibility": "Evaluation helpers for action parsing and metric configuration loading.",
+      "description": "Regex-based action extraction plus configuration wrapper for classification/financial labels.",
+      "inputs_or_props": "Functions accept plain text or file paths.",
+      "state_management": "Stateless; caches default metrics via class methods.",
+      "child_components": [],
+      "event_handlers": "Called by evaluate_nemo.py.",
+      "key_functions": ["extract_action", "load_metrics_config", "MetricsConfig.from_dict"],
+      "error_handling": "Defaults unknown actions to UNKNOWN; falls back to default config when JSON missing.",
+      "performance_considerations": "Lightweight regex and JSON parsing only."
+    },
+    "src/utils/logger.py": {
+      "responsibility": "Provide unified logging with optional color output and file rotation.",
+      "description": "Sets up console/file handlers, colorlog integration, and ensures unique log filenames.",
+      "inputs_or_props": "setup_logger arguments allow custom log_dir/log_file/levels.",
+      "state_management": "Creates logs directory and writes to timestamped files.",
+      "child_components": [],
+      "event_handlers": "Invoked by modules during initialization.",
+      "key_functions": ["setup_logger", "get_logger"],
+      "error_handling": "Fallback to plain formatter when colorlog unavailable.",
+      "performance_considerations": "Minimal overhead; file handler may incur I/O on chatty modules."
+    },
+    "src/utils/manifest.py": {
+      "responsibility": "Encapsulate reproducibility metadata generation for training runs.",
+      "description": "Captures git state, environment details, config hashes, and optional data file hashes into a manifest JSON.",
+      "inputs_or_props": "create_manifest parameters include run_name, config dict, data_files mapping, output_path, additional_info.",
+      "state_management": "Writes manifest JSON; callable returns dictionary for further processing.",
+      "child_components": ["subprocess.git"],
+      "event_handlers": "Called from train_nemo before training kickoff.",
+      "key_functions": ["get_git_info", "compute_file_hash", "compute_config_hash", "create_manifest"],
+      "error_handling": "Gracefully handles missing git repo, missing files, subprocess failures.",
+      "performance_considerations": "Hashes large files chunk-wise; may be slow with multi-GB datasets."
+    },
+    "src/utils/validation.py": {
+      "responsibility": "Provide validation helpers for dataset integrity and XML sanity checks.",
+      "description": "Functions enforce ISO date formats, valid trading actions, data leakage rules, and dataset statistics.",
+      "inputs_or_props": "Utility functions accept raw strings or pandas DataFrames.",
+      "state_management": "Stateless; returns boolean flags, warnings, and stats dictionaries.",
+      "child_components": [],
+      "event_handlers": "Imported wherever validation needed (parsers/data scripts/tests).",
+      "key_functions": ["validate_date_format", "normalize_date", "validate_action", "validate_time_splits", "validate_dataset_statistics", "check_xml_structure"],
+      "error_handling": "Returns descriptive error lists enabling calling modules to log skip reasons.",
+      "performance_considerations": "Vectorized date handling uses pandas for efficient validation."
+    },
+    "src/eval/__init__.py": {
+      "responsibility": "Package marker for evaluation modules.",
+      "description": "Empty module enabling relative imports within evaluation package.",
+      "inputs_or_props": "None",
+      "state_management": "None",
+      "child_components": [],
+      "event_handlers": "None",
+      "key_functions": [],
+      "error_handling": "Not applicable.",
+      "performance_considerations": "Not applicable."
+    },
+    "tests/test_data_pipeline.py": {
+      "responsibility": "Smoke-test data validation and parsing utilities.",
+      "description": "Uses pytest assertions to verify date/action normalization and optional XML parsing on sample data.",
+      "inputs_or_props": "pytest entry; can run standalone via python.",
+      "state_management": "None beyond logging output.",
+      "child_components": ["src.utils.validation", "src.parsers.xml_to_jsonl"],
+      "event_handlers": "Executed as test suite.",
+      "key_functions": ["test_date_validation", "test_action_validation", "test_record_validation", "test_xml_parsing", "main"],
+      "error_handling": "Assertions fail fast; warnings logged when sample files absent.",
+      "performance_considerations": "Quick CPU checks—appropriate for CI smoke runs."
+    },
+    "scripts/run_full_pipeline.sh": {
+      "responsibility": "One-command orchestrator for the entire pipeline.",
+      "description": "Supports selective skipping, smoke tests, environment activation, and sequential execution of conversion/train/eval/backtest steps.",
+      "inputs_or_props": "CLI flags --smoke-test, --skip-model-setup, --skip-data, --skip-train, --skip-eval.",
+      "state_management": "Relies on env vars (.env) and writes outputs to configured directories.",
+      "child_components": ["Other scripts and Python entry points"],
+      "event_handlers": "Bash control flow with verbose logging.",
+      "key_functions": [],
+      "error_handling": "set -e ensures failures abort; script prints guidance on missing prerequisites.",
+      "performance_considerations": "Delegates heavy work to underlying Python scripts; conversion/training dominate runtime."
+    },
+    "scripts/setup_env.sh": {
+      "responsibility": "Provision Python virtual environment and install dependencies (optional NeMo extras).",
+      "description": "Checks Python version, installs PyTorch (CPU or GPU), installs requirements, and verifies core imports.",
+      "inputs_or_props": "Env flags INSTALL_NEMO, INSTALL_GPU_TORCH, VENV_DIR.",
+      "state_management": "Creates venv/ directory; prints instructions for activation.",
+      "child_components": [],
+      "event_handlers": "Bash script executed manually.",
+      "key_functions": [],
+      "error_handling": "Exits on missing files, warns on optional dependency failures.",
+      "performance_considerations": "Network-bound for package installs; includes verification script at end."
     }
   },
-
-  "scaling_considerations": {
-    "data_volume": {
-      "current": "~11K thesis records",
-      "scalability": "Arrow format supports millions of samples",
-      "bottlenecks": "Memory during tokenization"
-    },
-
-    "model_size": {
-      "current": "DeepSeek-V3.2-Exp (~20GB)",
-      "scalability": "LoRA keeps updates small (~500MB)",
-      "bottlenecks": "GPU memory, download time"
-    },
-
-    "compute_resources": {
-      "cpu": "Data processing, validation, testing",
-      "gpu": "Model training, inference, evaluation",
-      "optimization": "Gradient checkpointing, quantization"
-    }
-  },
-
-  "entry_points": {
-    "data_processing": "src/parsers/xml_to_jsonl.py",
-    "dataset_creation": "src/data/convert_dataset.py",
-    "nemo_export": "src/data/export_nemo_dataset.py",
-    "model_conversion": "scripts/convert/convert_deepseek_v3.sh",
-    "nemo_import": "scripts/convert/import_to_nemo.py",
-    "training": "src/train/train_nemo.py",
-    "evaluation": "src/eval/evaluate_nemo.py",
-    "backtesting": "src/backtest/trading_backtest.py",
-    "full_pipeline": "scripts/run_full_pipeline.sh",
-    "smoke_test": "scripts/smoke_test.sh"
-  },
-
-  "critical_paths": {
-    "data_integrity": "validation.py ensures clean data throughout pipeline",
-    "time_leakage": "convert_dataset.py prevents future data in training",
-    "model_conversion": "fp8_cast_bf16.py converts DeepSeek FP8→BF16 for NeMo",
-    "model_loading": "train_nemo.py handles NeMo recipe initialization and data module setup",
-    "reproducibility": "manifest.py creates complete audit trails",
-    "error_recovery": "All modules have graceful failure modes"
-  },
-
-  "dependencies": {
-    "core_ml": ["torch", "nemo-toolkit", "megatron-core", "transformers", "datasets"],
-    "data_processing": ["pandas", "numpy", "pyarrow", "scikit-learn"],
-    "utilities": ["pyyaml", "python-dotenv", "tqdm", "colorlog", "omegaconf", "hydra-core"],
-    "financial": ["yfinance", "requests"],
-    "conversion": ["triton", "safetensors"],
-    "optional": ["wandb", "tensorboard", "apex", "flash-attn"]
-  },
-
-  "file_relationships": {
-    "xml_to_jsonl.py": "Creates JSONL from XML",
-    "convert_dataset.py": "Uses JSONL to create HF dataset",
-    "export_nemo_dataset.py": "Uses HF dataset to create NeMo JSONL",
-    "train_nemo.py": "Uses NeMo JSONL for training",
-    "evaluate_nemo.py": "Uses trained .nemo checkpoint + NeMo JSONL",
-    "trading_backtest.py": "Uses evaluation CSV/JSONL",
-    "price_data.py": "Used by evaluate_nemo.py",
-    "validation.py": "Used by all data processing modules",
-    "fp8_cast_bf16.py": "Converts DeepSeek FP8 to BF16",
-    "import_to_nemo.py": "Creates .nemo archive from BF16"
-  },
-
   "state_management": {
-    "description": "File-based state with configuration-driven behavior",
-    "persistent_state": "Model checkpoints, cached datasets, price data",
-    "configuration": ".env + YAML files control all behavior",
-    "logging": "Comprehensive logging to files and console",
-    "caching": "Price data and model caching for efficiency"
+    "stores": {
+      "dataset_artifacts": {
+        "purpose": "Persist processed datasets at each stage (JSONL, HF, NeMo).",
+        "structure": "File-based directories under data/ (jsonl, hf_datasets, nemo).",
+        "actions": ["Conversion scripts write outputs", "Subsequent stages read and transform"],
+        "selectors": ["Environment variables (JSONL_OUTPUT, HF_DATASET_DIR, NEMO_DATASET_DIR)"],
+        "integration": "Used by training/evaluation scripts based on config paths.",
+        "flow": "XML parser → JSONL → convert_dataset → export_nemo_dataset → training/evaluation"
+      },
+      "model_artifacts": {
+        "purpose": "Store original checkpoints, BF16 conversions, and fine-tuned outputs.",
+        "structure": "checkpoints/{source,bf16,nemo,nemo_runs}",
+        "actions": ["Conversion scripts generate BF16/.nemo", "Training outputs mania"],
+        "selectors": ["configs/nemo/finetune.yaml recipe.resume_path"],
+        "integration": "NeMo training/evaluation loads from these directories.",
+        "flow": "convert_deepseek_v3.sh → import_to_nemo.py → train_nemo.py/evaluate_nemo.py"
+      },
+      "price_cache": {
+        "purpose": "Accelerate financial metric calculations with cached price histories.",
+        "structure": "Parquet files under data/price_cache plus cache_index.parquet",
+        "actions": ["PriceDataClient.get_price_data", "get_forward_return"],
+        "selectors": ["ticker", "date"],
+        "integration": "evaluate_nemo.py and backtesting consume cached returns.",
+        "flow": "Price API call → cache write → repeated evaluation/backtest reuse"
+      }
+    }
   },
-
-  "error_states": {
-    "xml_parsing": "Invalid XML structure, logged and skipped",
-    "data_validation": "Missing fields, invalid dates, logged warnings",
-    "api_failures": "eodhd fallback to yfinance, cached data used",
-    "gpu_memory": "Gradient checkpointing, smaller batches",
-    "disk_space": "Efficient caching, checkpoint management"
+  "relationships": {
+    "data_to_training": "export_nemo_dataset.py provides JSONL that train_nemo.py consumes via configs/nemo/finetune.yaml dataset.path.",
+    "training_to_evaluation": "train_nemo.py outputs .nemo checkpoints that evaluate_nemo.py loads for inference.",
+    "evaluation_to_backtest": "evaluate_nemo.py writes results CSV consumed by trading_backtest.py.",
+    "utilities": "validation.py underpins parsers/data conversion; logger.py shared across modules; manifest.py records training metadata."
   },
-
-  "loading_states": {
-    "model_download": "20-40GB download on first use (~10-30 minutes)",
-    "dataset_loading": "Arrow format loads quickly",
-    "price_caching": "API calls cached in Parquet format",
-    "training": "Progress bars and logging throughout"
+  "utilities": {
+    "validation": ["normalize_date", "normalize_action", "validate_thesis_record", "validate_time_splits", "validate_dataset_statistics", "check_xml_structure"],
+    "logging": ["setup_logger", "get_logger"],
+    "evaluation": ["extract_action", "load_metrics_config"],
+    "manifest": ["get_git_info", "compute_config_hash", "create_manifest"],
+    "price_data": ["get_price_data", "get_forward_return", "batch_get_forward_returns"]
   },
-
-  "performance_characteristics": {
-    "cpu_operations": "Data processing, validation, small tests",
-    "gpu_operations": "Model training, inference, evaluation",
-    "memory_usage": "Quantization reduces from 40GB to ~10GB",
-    "disk_usage": "Efficient caching, ~50GB total for full pipeline",
-    "network_usage": "Model download (one-time), price API calls"
+  "code_standards": {
+    "style": "Python modules favor docstrings, argparse CLIs, and logger-based output. Shell scripts enforce `set -e` for fail-fast behavior.",
+    "error_handling": "Consistent logging of warnings/errors, raising ValueError for critical validation issues, and returning None when data missing.",
+    "testing": "tests/test_data_pipeline.py provides smoke coverage; scripts/smoke_test.sh and cpu_comprehensive_test.sh offer manual verification flows.",
+    "configuration": "Environment variables via python-dotenv; YAML/JSON configs stored under configs/."
   },
-
-  "maintainability": {
-    "modular_design": "Single responsibility modules",
-    "comprehensive_logging": "Debuggable and auditable",
-    "configuration_driven": "Flexible without code changes",
-    "extensive_documentation": "README, inline docs, examples",
-    "testing_framework": "Unit tests for critical functions",
-    "error_handling": "Graceful failures with clear messages"
+  "security": {
+    "api_keys": "EODHD_API_KEY sourced from .env environment; never committed. Price client gracefully handles missing key.",
+    "data_validation": "validation.py ensures external XML data cannot inject malformed structures before training.",
+    "model_import": "Patches in import_to_nemo.py disable gradient accumulation fusion to avoid incompatible compiled extensions.",
+    "artifact_management": "Large checkpoints stored outside repo per README guidance to avoid accidental commits."
+  },
+  "performance": {
+    "model_parallelism": "NeMo configs leverage tensor parallelism (size=8) and optional packed sequences for efficiency.",
+    "data_efficiency": "Pandas/HF dataset conversions minimize recomputation; metadata saved for reuse.",
+    "caching": "Price data cached on disk and memory; tokenizer extension writes to disk to avoid repeated downloads.",
+    "scripts": "run_full_pipeline.sh supports skipping stages to reuse expensive artifacts." 
+  },
+  "testing_strategy": {
+    "unit": "tests/test_data_pipeline.py covers validation helpers.",
+    "smoke": "scripts/smoke_test.sh executes core steps on sample data.",
+    "comprehensive": "scripts/cpu_comprehensive_test.sh verifies environment readiness and pipeline components on CPU.",
+    "manual": "README and runbook document manual checks for conversion and GPU training." 
+  },
+  "infrastructure": {
+    "build_configuration": "requirements.txt and requirements_nemo.txt define dependencies; setup_env.sh automates installation with GPU/NeMo toggles.",
+    "environment_setup": ".env for secrets/dates, venv for isolation, optional INSTALL_NEMO flag for GPU nodes.",
+    "api_integration": "PriceDataClient integrates with eodhd.com (primary) and yfinance (fallback) via HTTPS with retries.",
+    "authentication": "API keys handled through environment variables.",
+    "data_persistence": "Intermediate datasets stored on disk; checkpoints under checkpoints/ hierarchy; manifests in run directories.",
+    "file_storage": "Large assets expected in external mount (/data) per README; scripts enforce directories.",
+    "security_measures": "Validation layers, environment separation, and logging support traceability during operations."
   }
 }
