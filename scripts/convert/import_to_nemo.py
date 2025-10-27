@@ -82,13 +82,13 @@ def import_checkpoint(
     print("[INFO] Importing BF16 checkpoint into NeMo archive…")
     print(f"[INFO] BF16 source: {bf16_dir}")
     print(f"[INFO] Output archive: {output_path}")
-    print("[INFO] Using DeepSeekV3Config (persist_layer_norm auto-patched)")
+    print("[INFO] Using DeepSeekV3Config with gradient_accumulation_fusion=False")
     print("[INFO] This may take 5-15 minutes...")
 
-    # Use default config - the monkey patch above ensures persist_layer_norm=False
+    # Disable gradient_accumulation_fusion since APEX with CUDA extensions is not available
     # Reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
     llm.import_ckpt(
-        model=llm.DeepSeekModel(llm.DeepSeekV3Config()),
+        model=llm.DeepSeekModel(llm.DeepSeekV3Config(gradient_accumulation_fusion=False)),
         source=f"hf://{bf16_dir.absolute()}",
         output_path=str(output_path),
     )

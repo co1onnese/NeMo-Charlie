@@ -1,0 +1,69 @@
+=========================================
+SFT Trading Pipeline - Full Run
+=========================================
+Activating virtual environment...
+
+=========================================
+Step 0: Model Setup
+=========================================
+NeMo model not found. Starting download and conversion process...
+
+0.1: Download already complete
+     ✓ DeepSeek-V3 source exists at: /data/models/deepseek-v3-source
+     To re-download: rm -rf /data/models/deepseek-v3-source
+
+0.2: BF16 conversion already complete
+     ✓ BF16 model exists at: /data/models/deepseek-v3-bf16
+     ✓ All required files present (config.json, tokenizer.json, etc.)
+     To re-convert: rm -rf /data/models/deepseek-v3-bf16
+
+0.3: Importing BF16 checkpoint to NeMo format...
+     This creates a .nemo archive optimized for 8×H100.
+
+[INFO] Importing BF16 checkpoint into NeMo archive…
+[INFO] BF16 source: /data/models/deepseek-v3-bf16
+[INFO] Output archive: /data/models/deepseek-v3-base_tp8_pp1.nemo
+[INFO] Using DeepSeekV3Config with persist_layer_norm disabled
+[INFO] This may take 5-15 minutes...
+[DEBUG] Config persist_layer_norm: False
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Fixing mis-match between ddp-config & mcore-optimizer config
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has data parallel group : [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has combined group of data parallel and context parallel : [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] All data parallel group ranks with context parallel combined: [[0]]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Ranks 0 has data parallel rank: 0
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has context parallel group: [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] All context parallel group ranks: [[0]]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Ranks 0 has context parallel rank: 0
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has model parallel group: [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] All model parallel group ranks: [[0]]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has tensor model parallel group: [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] All tensor model parallel group ranks: [[0]]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has tensor model parallel rank: 0
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has pipeline model parallel group: [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has embedding group: [0]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] All pipeline model parallel group ranks: [[0]]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has pipeline model parallel rank 0
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] All embedding group ranks: [[0]]
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Rank 0 has embedding rank: 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[NeMo I 2025-10-27 04:24:56 nemo_logging:393] Padded vocab_size: 129280, original vocab_size: 128815, dummy tokens: 465.
