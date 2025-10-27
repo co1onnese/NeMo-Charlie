@@ -85,6 +85,12 @@ if [[ "${INSTALL_NEMO:-false}" == "true" ]]; then
         echo "[INFO] Optional features (mamba-ssm) may not be available"
         echo "[INFO] This should not affect DeepSeek V3 import functionality"
     fi
+
+    # Ensure critical NeMo dependencies are installed
+    if [[ "${INSTALL_NEMO:-false}" == "true" ]]; then
+        echo \"[INFO] Ensuring critical NeMo dependencies...\"
+        pip install megatron-core lightning rich hydra-core fiddle cloudpickle einops tiktoken || echo \"[WARNING] Some critical dependencies failed to install\"
+    fi
 fi
 
 # Verify installations
@@ -137,6 +143,11 @@ if install_nemo:
     check_import('nemo', 'NeMo')
     check_import('omegaconf', 'OmegaConf')
     check_import('hydra', 'Hydra')
+    check_import('rich', 'Rich')
+    check_import('fiddle', 'Fiddle')
+    check_import('cloudpickle', 'CloudPickle')
+    check_import('einops', 'Einops')
+    check_import('tiktoken', 'Tiktoken')
 
     # Verify NeMo llm module works
     try:
