@@ -19,9 +19,29 @@ Official NeMo docs: https://docs.nvidia.com/nemo-framework/user-guide/latest/llm
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
-from nemo.collections import llm
+# Try to import NeMo LLM, handle modelopt issues
+try:
+    from nemo.collections import llm
+    # Verify import_ckpt is available
+    if not hasattr(llm, 'import_ckpt'):
+        raise ImportError("llm.import_ckpt not available - modelopt dependency issue")
+except Exception as e:
+    print(f"[ERROR] Failed to import NeMo LLM properly: {e}")
+    print("[ERROR]")
+    print("[ERROR] This is likely due to a broken modelopt installation.")
+    print("[ERROR] Please fix your environment:")
+    print("[ERROR]")
+    print("[ERROR]   cd /workspace/NeMo-Charlie")
+    print("[ERROR]   source venv/bin/activate")
+    print("[ERROR]   pip uninstall -y modelopt nvidia-modelopt")
+    print("[ERROR]   pip install nvidia-modelopt")
+    print("[ERROR]   # Or if that fails:")
+    print("[ERROR]   pip uninstall -y modelopt")
+    print("[ERROR]")
+    sys.exit(1)
 
 
 def import_checkpoint(

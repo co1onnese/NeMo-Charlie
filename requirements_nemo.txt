@@ -31,6 +31,12 @@ triton>=2.1.0
 # NVIDIA utilities (replaces deprecated pynvml)
 nvidia-ml-py>=12.535.0
 
+# NVIDIA Model Optimizer (optional, for some NeMo optimization features)
+# Uncomment if you get modelopt import errors during NeMo import:
+# nvidia-modelopt
+# Note: May have torch version compatibility issues
+
 # Optional but recommended for performance
 # apex  # Install manually from NVIDIA repo if needed
 # flash-attn>=2.0.0  # Install manually if needed
+# transformer-engine  # For optimized attention
