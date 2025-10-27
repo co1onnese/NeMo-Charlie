@@ -68,13 +68,16 @@ def import_checkpoint(
     print("[INFO] Importing BF16 checkpoint into NeMo archive…")
     print(f"[INFO] BF16 source: {bf16_dir}")
     print(f"[INFO] Output archive: {output_path}")
-    print("[INFO] Using DeepSeekV3Config with default settings")
+    print("[INFO] Using DeepSeekV3Config with persist_layer_norm disabled")
     print("[INFO] This may take 5-15 minutes...")
 
-    # Use the official NeMo API for DeepSeek V3
+    # Create config with persist_layer_norm=False to avoid PyTorch LayerNorm incompatibility
     # Reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
+    config = llm.DeepSeekV3Config()
+    config.persist_layer_norm = False  # Fix: PyTorch LayerNorm doesn't support this
+
     llm.import_ckpt(
-        model=llm.DeepSeekModel(llm.DeepSeekV3Config()),
+        model=llm.DeepSeekModel(config),
         source=f"hf://{bf16_dir.absolute()}",
         output_path=str(output_path),
     )
