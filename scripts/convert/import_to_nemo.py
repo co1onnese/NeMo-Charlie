@@ -22,6 +22,20 @@ import os
 import sys
 from pathlib import Path
 
+# CRITICAL FIX: Monkey patch TransformerConfig before NeMo imports it
+# This forces persist_layer_norm=False at the Megatron level
+print("[INFO] Applying persist_layer_norm fix...")
+import megatron.core.transformer.transformer_config as tf_config_module
+original_transformer_config_init = tf_config_module.TransformerConfig.__init__
+
+def patched_transformer_config_init(self, *args, **kwargs):
+    """Force persist_layer_norm=False for PyTorch LayerNorm compatibility"""
+    kwargs['persist_layer_norm'] = False
+    return original_transformer_config_init(self, *args, **kwargs)
+
+tf_config_module.TransformerConfig.__init__ = patched_transformer_config_init
+print("[INFO] ✓ Forced persist_layer_norm=False in TransformerConfig")
+
 # Try to import NeMo LLM, handle modelopt issues
 try:
     from nemo.collections import llm
@@ -68,30 +82,13 @@ def import_checkpoint(
     print("[INFO] Importing BF16 checkpoint into NeMo archive…")
     print(f"[INFO] BF16 source: {bf16_dir}")
     print(f"[INFO] Output archive: {output_path}")
-    print("[INFO] Using DeepSeekV3Config with persist_layer_norm disabled")
+    print("[INFO] Using DeepSeekV3Config (persist_layer_norm auto-patched)")
     print("[INFO] This may take 5-15 minutes...")
 
-    # Create config and aggressively disable persist_layer_norm at all levels
-    # PyTorch LayerNorm doesn't support this Megatron optimization
+    # Use default config - the monkey patch above ensures persist_layer_norm=False
     # Reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
-    try:
-        config = llm.DeepSeekV3Config(persist_layer_norm=False)
-    except TypeError:
-        # Fallback if persist_layer_norm isn't a valid init parameter
-        config = llm.DeepSeekV3Config()
-
-    # Set at all possible levels
-    config.persist_layer_norm = False
-    if hasattr(config, 'transformer_config'):
-        config.transformer_config.persist_layer_norm = False
-    if hasattr(config, 'layer_spec'):
-        if hasattr(config.layer_spec, 'persist_layer_norm'):
-            config.layer_spec.persist_layer_norm = False
-
-    print(f"[DEBUG] Config persist_layer_norm: {getattr(config, 'persist_layer_norm', 'not found')}")
-
     llm.import_ckpt(
-        model=llm.DeepSeekModel(config),
+        model=llm.DeepSeekModel(llm.DeepSeekV3Config()),
         source=f"hf://{bf16_dir.absolute()}",
         output_path=str(output_path),
     )
