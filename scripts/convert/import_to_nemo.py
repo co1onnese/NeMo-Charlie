@@ -71,10 +71,24 @@ def import_checkpoint(
     print("[INFO] Using DeepSeekV3Config with persist_layer_norm disabled")
     print("[INFO] This may take 5-15 minutes...")
 
-    # Create config with persist_layer_norm=False to avoid PyTorch LayerNorm incompatibility
+    # Create config and aggressively disable persist_layer_norm at all levels
+    # PyTorch LayerNorm doesn't support this Megatron optimization
     # Reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/llms/deepseek_v3.html
-    config = llm.DeepSeekV3Config()
-    config.persist_layer_norm = False  # Fix: PyTorch LayerNorm doesn't support this
+    try:
+        config = llm.DeepSeekV3Config(persist_layer_norm=False)
+    except TypeError:
+        # Fallback if persist_layer_norm isn't a valid init parameter
+        config = llm.DeepSeekV3Config()
+
+    # Set at all possible levels
+    config.persist_layer_norm = False
+    if hasattr(config, 'transformer_config'):
+        config.transformer_config.persist_layer_norm = False
+    if hasattr(config, 'layer_spec'):
+        if hasattr(config.layer_spec, 'persist_layer_norm'):
+            config.layer_spec.persist_layer_norm = False
+
+    print(f"[DEBUG] Config persist_layer_norm: {getattr(config, 'persist_layer_norm', 'not found')}")
 
     llm.import_ckpt(
         model=llm.DeepSeekModel(config),
