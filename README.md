@@ -1,81 +1,382 @@
 # NeMo-Charlie: DeepSeek-V3 Financial Trading Pipeline
 
-A production-grade supervised fine-tuning pipeline for training DeepSeek-V3 models on financial trading data using NVIDIA NeMo Framework.
+A production-grade supervised fine-tuning pipeline for training DeepSeek-V3 models on financial trading data using NVIDIA NeMo Framework. This pipeline processes financial thesis data, trains models with full-parameter fine-tuning or LoRA, and evaluates performance using both NLP metrics and portfolio backtesting.
 
-## 🚀 Quick Start
+## Table of Contents
 
-### Prerequisites
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Model Conversion](#model-conversion)
+- [Data Preparation](#data-preparation)
+- [Training](#training)
+- [Evaluation & Backtesting](#evaluation--backtesting)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [Advanced Topics](#advanced-topics)
 
-- **GPU:** 8×H100 80GB with NVLink (or similar)
-- **OS:** Linux with CUDA 12.1+
-- **Python:** 3.10+
-- **Disk:** 500 GB recommended
+## Prerequisites
 
-### Installation
+### Hardware
+
+**Minimum (Development/Testing):**
+- CPU: 8+ cores
+- RAM: 32 GB
+- Disk: 100 GB
+- GPU: Optional (1×A100/H100 for testing)
+
+**Production (Full Training):**
+- GPUs: **8×H100 80GB** with NVLink (single node)
+- RAM: 512 GB
+- Disk: 500 GB NVMe storage
+- CUDA: 12.4+
+
+### Software
+
+- **OS:** Linux (Ubuntu 20.04+ recommended)
+- **Python:** 3.8+ (3.10 or 3.12 recommended)
+- **Git:** For cloning repository
+- **CUDA Toolkit:** 12.4+ (for GPU training)
+
+## Quick Start
+
+### 1. Installation
+
+Clone the repository and run the automated setup script:
 
 ```bash
 # Clone repository
-git clone git@github.com:co1onnese/NeMo-Charlie.git
+git clone https://github.com/co1onnese/NeMo-Charlie.git
 cd NeMo-Charlie
 
-# Install NeMo environment
+# Run comprehensive setup (installs everything + applies patches)
 INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh
+```
+
+**This single command:**
+1. ✅ Creates Python virtual environment
+2. ✅ Installs PyTorch with CUDA 12.4 support
+3. ✅ Installs all dependencies
+4. ✅ Installs NeMo Framework
+5. ✅ Automatically applies NeMo patches
+6. ✅ Verifies everything works
+
+**Time:** ~10-15 minutes
+
+### 2. Activate Environment
+
+Every time you start a new terminal session:
+
+```bash
+cd NeMo-Charlie
 source venv/bin/activate
 ```
 
-### One-Time Model Setup
-
-Convert DeepSeek-V3 from FP8 to NeMo format:
+### 3. Configure Environment
 
 ```bash
-# 1. Clone FP8 model
-git lfs clone https://huggingface.co/deepseek-ai/DeepSeek-V3-Base checkpoints/source/deepseek-v3
+# Copy example config
+cp .env.example .env
 
-# 2. Convert & import
+# Edit with your settings
+nano .env
+```
+
+Set these variables:
+```bash
+# API Keys
+EODHD_API_KEY=your_api_key
+
+# Date Ranges
+TRAIN_END_DATE=2024-12-31
+TEST_START_DATE=2025-01-01
+```
+
+## Model Conversion
+
+DeepSeek-V3 requires one-time conversion from FP8 to NeMo format.
+
+### Step 1: Download Model
+
+```bash
+# Clone FP8 model from HuggingFace (requires git-lfs)
+git lfs clone https://huggingface.co/deepseek-ai/DeepSeek-V3-Base checkpoints/source/deepseek-v3
+```
+
+**Size:** ~1.3 TB (671B parameters in FP8)
+
+### Step 2: Convert FP8 → BF16
+
+```bash
 bash scripts/convert/convert_deepseek_v3.sh \
   --source checkpoints/source/deepseek-v3 \
   --output checkpoints/bf16/deepseek-v3
-
-python3 scripts/convert/import_to_nemo.py \
-  --bf16-dir checkpoints/bf16/deepseek-v3 \
-  --output checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo
 ```
 
-### Training Pipeline
+This uses Triton kernels for efficient tensor conversion.
+
+**Requirements:**
+- ~40GB GPU memory
+- ~20-30 minutes on H100
+
+### Step 3: Import to NeMo
 
 ```bash
-# 1. Prepare data
-python3 src/parsers/xml_to_jsonl.py
-python3 src/data/convert_dataset.py
-python3 src/data/export_nemo_dataset.py \
-  --dataset_dir data/hf_datasets/sft_dataset \
-  --output_dir data/nemo/sft_dataset
+python scripts/convert/import_to_nemo.py \
+  --bf16-dir checkpoints/bf16/deepseek-v3 \
+  --output checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo \
+  --tensor-parallel 8 \
+  --pipeline-parallel 1
+```
 
-# 2. Train
-python3 src/train/train_nemo.py \
+This creates a `.nemo` archive optimized for 8×H100.
+
+**Requirements:**
+- Must run with: `torchrun --nproc_per_node=8`
+- ~10-30 minutes
+
+## Data Preparation
+
+### Pipeline Architecture
+
+```
+Raw XML Files
+    ↓
+XML Parser → JSONL Records
+    ↓
+Dataset Converter → Time-based Train/Val/Test Splits
+    ↓
+HuggingFace Dataset (intermediate)
+    ↓
+NeMo Export → training/validation/test.jsonl
+```
+
+### Step 1: Parse XML Data
+
+```bash
+# Place XML files in data/raw_xml/
+cp /path/to/*.xml data/raw_xml/
+
+# Parse to JSONL
+python src/parsers/xml_to_jsonl.py \
+  --input_dir data/raw_xml \
+  --output_file data/jsonl/all.jsonl \
+  --validate
+```
+
+**Output:** Normalized JSONL with fields: `instruction`, `input`, `output`, `date`, `ticker`, etc.
+
+### Step 2: Create Dataset Splits
+
+```bash
+python src/data/convert_dataset.py \
+  --jsonl data/jsonl/all.jsonl \
+  --out_dir data/hf_datasets/sft_dataset \
+  --train_end 2024-12-31 \
+  --test_start 2025-01-01 \
+  --validation_days 30
+```
+
+**Features:**
+- Time-based splits (prevents data leakage)
+- Validation period from train split
+- Comprehensive statistics and metadata
+
+### Step 3: Export to NeMo Format
+
+```bash
+python src/data/export_nemo_dataset.py \
+  --dataset_dir data/hf_datasets/sft_dataset \
+  --output_dir data/nemo/sft_dataset \
+  --template chatml \
+  --include_metadata
+```
+
+**Templates available:**
+- `chatml`: ChatML format with special tokens
+- `alpaca`: Alpaca instruction format
+- `simple`: Plain concatenation
+
+**Output:** Three files in `data/nemo/sft_dataset/`:
+- `training.jsonl`
+- `validation.jsonl`
+- `test.jsonl`
+
+## Training
+
+### Configuration
+
+Edit `configs/nemo/finetune.yaml`:
+
+```yaml
+recipe:
+  factory: deepseek_v3
+  name: deepseek_v3_finetune
+  resume_path: checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo
+
+dataset:
+  path: data/nemo/sft_dataset
+  template: chatml
+  label_key: output
+  answer_only_loss: true
+
+train:
+  peft: none                 # 'none' for full, 'lora' for adapters
+  seq_length: 65536          # Max sequence length
+  micro_batch_size: 1        # Per-GPU batch size
+  global_batch_size: 128     # Total batch size
+  num_nodes: 1
+  gpus_per_node: 8
+```
+
+### Smoke Test (Recommended)
+
+Test training with 10 steps:
+
+```bash
+python src/train/train_nemo.py \
+  --config configs/nemo/finetune.yaml \
+  --output checkpoints/nemo_runs/smoke \
+  --smoke-test
+```
+
+**Time:** ~5-10 minutes
+
+### Full Training
+
+```bash
+python src/train/train_nemo.py \
   --config configs/nemo/finetune.yaml \
   --output checkpoints/nemo_runs/main
+```
 
-# 3. Evaluate
-python3 src/eval/evaluate_nemo.py \
+**Outputs:**
+- Fine-tuned checkpoint: `checkpoints/nemo_runs/main/deepseek_v3_finetune.nemo`
+- Training manifest: `manifest.json` (git hash, config, data checksums)
+- Logs: `logs/train_*.log`
+
+### Training Options
+
+**Full-Parameter Fine-Tuning:**
+```yaml
+train:
+  peft: none
+```
+- Requires 8×H100 80GB
+- Best accuracy
+- Slowest training
+
+**LoRA (Low-Rank Adaptation):**
+```yaml
+train:
+  peft: lora
+```
+- Requires fewer GPUs
+- Faster training
+- Slightly lower accuracy
+
+## Evaluation & Backtesting
+
+### Step 1: Generate Predictions
+
+```bash
+python src/eval/evaluate_nemo.py \
   --model checkpoints/nemo_runs/main/deepseek_v3_finetune.nemo \
   --dataset data/nemo/sft_dataset \
-  --results results/eval_results.csv
+  --split test \
+  --results results/eval_results.csv \
+  --metrics-json results/metrics.json
+```
 
-# 4. Backtest
-python3 src/backtest/trading_backtest.py \
+**Outputs:**
+- `eval_results.csv`: Predictions with true/predicted actions
+- `metrics.json`: Classification and financial metrics
+
+**Metrics computed:**
+- **NLP Metrics:** Accuracy, Precision, Recall, F1
+- **Financial Metrics:** Hit Rate, Sharpe Ratio, Returns
+
+### Step 2: Portfolio Backtesting
+
+```bash
+python src/backtest/trading_backtest.py \
   --eval_jsonl results/eval_results.csv \
   --config configs/backtest_config.yaml \
   --out backtests/baseline.csv
 ```
 
-Or use the automated pipeline:
-
-```bash
-bash scripts/run_full_pipeline.sh
+**Configuration** (`configs/backtest_config.yaml`):
+```yaml
+capital: 100000
+transaction_cost: 0.001
+slippage: 0.0005
+sizing_strategy: equal_weight
 ```
 
-## 📁 Project Structure
+**Outputs:**
+- `backtests/baseline.csv`: Equity curve over time
+- `backtests/baseline_metrics.json`: Performance statistics
+
+### Expected Performance
+
+- **Action Accuracy:** 60-75%
+- **Hit Rate:** 55-60%
+- **Sharpe Ratio:** 0.5-1.0
+
+## Configuration
+
+### NeMo Training Parameters
+
+**Key settings in `configs/nemo/finetune.yaml`:**
+
+```yaml
+# Model parallelism
+recipe:
+  tensor_model_parallel_size: 8
+  pipeline_model_parallel_size: 1
+
+# Sequence handling
+train:
+  seq_length: 65536           # Max tokens per sample
+  micro_batch_size: 1         # Samples per GPU
+  global_batch_size: 128      # Total batch size
+
+# Optimization
+  max_steps: 1000
+  val_check_interval: 100
+  log_every_n_steps: 10
+
+# LoRA settings (if peft: lora)
+  lora_rank: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+```
+
+### Environment Variables
+
+Create `.env` file:
+
+```bash
+# Required
+EODHD_API_KEY=your_key_here
+
+# Date configuration
+TRAIN_END_DATE=2024-12-31
+VALIDATION_DAYS=30
+TEST_START_DATE=2025-01-01
+
+# Paths (optional, defaults shown)
+RAW_XML_DIR=data/raw_xml
+JSONL_OUTPUT=data/jsonl/all.jsonl
+HF_DATASET_DIR=data/hf_datasets/sft_dataset
+NEMO_DATASET_DIR=data/nemo/sft_dataset
+
+# Monitoring (optional)
+USE_WANDB=false
+WANDB_PROJECT=DeepSeek_Trading
+```
+
+## Project Structure
 
 ```
 NeMo-Charlie/
@@ -84,189 +385,290 @@ NeMo-Charlie/
 │   │   └── finetune.yaml          # NeMo training config
 │   ├── backtest_config.yaml       # Backtest parameters
 │   └── eval_config.json           # Evaluation metrics
+│
 ├── data/
 │   ├── raw_xml/                   # Input XML files
-│   ├── jsonl/                     # Converted JSONL
-│   ├── hf_datasets/               # Intermediate HF format
+│   ├── jsonl/                     # Parsed JSONL
+│   ├── hf_datasets/               # HuggingFace format
 │   └── nemo/                      # NeMo-ready JSONL
+│
 ├── src/
 │   ├── parsers/
 │   │   └── xml_to_jsonl.py        # XML→JSONL converter
 │   ├── data/
-│   │   ├── convert_dataset.py     # HF dataset creation
-│   │   ├── export_nemo_dataset.py # NeMo JSONL export
-│   │   └── price_data.py          # Financial data API
+│   │   ├── convert_dataset.py     # Dataset creation
+│   │   ├── export_nemo_dataset.py # NeMo export
+│   │   └── price_data.py          # Price data API
 │   ├── train/
-│   │   └── train_nemo.py          # NeMo training entrypoint
+│   │   └── train_nemo.py          # Training entrypoint
 │   ├── eval/
-│   │   ├── evaluate_nemo.py       # NeMo evaluation
+│   │   ├── evaluate_nemo.py       # Evaluation
 │   │   └── metrics.py             # Metrics computation
 │   ├── backtest/
 │   │   └── trading_backtest.py    # Portfolio simulation
 │   └── utils/
-│       ├── logger.py              # Logging utilities
-│       ├── manifest.py            # Reproducibility tracking
+│       ├── logger.py              # Logging
+│       ├── manifest.py            # Reproducibility
 │       └── validation.py          # Data validation
+│
 ├── scripts/
-│   ├── convert/
-│   │   ├── fp8_cast_bf16.py       # FP8→BF16 conversion
-│   │   ├── kernel.py              # Triton kernels
-│   │   ├── convert_deepseek_v3.sh # Wrapper script
-│   │   └── import_to_nemo.py      # NeMo import
 │   ├── setup_env.sh               # Environment setup
-│   └── run_full_pipeline.sh       # Full pipeline
+│   ├── run_full_pipeline.sh       # Full pipeline automation
+│   ├── apply_nemo_patches.py      # NeMo patching (auto)
+│   ├── verify_nemo_fixes.sh       # Verify patches
+│   └── convert/
+│       ├── convert_deepseek_v3.sh # FP8→BF16 wrapper
+│       ├── fp8_cast_bf16.py       # FP8→BF16 conversion
+│       ├── kernel.py              # Triton kernels
+│       └── import_to_nemo.py      # NeMo import
+│
 └── checkpoints/
     ├── source/                    # Downloaded FP8 model
     ├── bf16/                      # Converted BF16
-    └── nemo/                      # NeMo .nemo archives
+    ├── nemo/                      # Base .nemo archives
+    └── nemo_runs/                 # Fine-tuned checkpoints
 ```
 
-## 🎯 Features
+## Troubleshooting
 
-- **NeMo Framework Integration:** Native support for DeepSeek-V3 with Megatron-Core parallelism
-- **Full-Parameter Fine-Tuning:** Train entire model on 8×H100, not just adapters
-- **Long Context:** Supports up to 131k tokens with efficient attention
-- **Time-Based Splits:** Prevents data leakage with strict chronological separation
-- **Comprehensive Evaluation:** Both NLP accuracy and financial performance metrics
-- **Portfolio Backtesting:** Realistic simulation with transaction costs and slippage
-- **Reproducibility:** Complete manifests with git commits, configs, and data checksums
+### Setup Issues
 
-## 📊 Pipeline Stages
+**Problem: "No module named 'nv_one_logger'"**
 
-### 1. Data Processing
+NeMo patches weren't applied.
 
-- Parse XML thesis files to JSONL
-- Create time-based train/validation/test splits
-- Export to NeMo-compatible JSONL format
-- Add special tokens for structured output
+**Solution:**
+```bash
+source venv/bin/activate
+python scripts/apply_nemo_patches.py
+```
 
-### 2. Model Conversion
+**Problem: Setup script hangs**
 
-- Download DeepSeek-V3 FP8 checkpoint
-- Convert to BF16 using Triton kernels
-- Import into NeMo `.nemo` archive format
-- Configure for 8-way tensor parallelism
+Large downloads (~2GB PyTorch, ~1GB NeMo).
 
-### 3. Training
+**Solution:**
+- Be patient, monitor with `htop`
+- Check disk space: `df -h`
+- Check network: `ping pypi.org`
 
-- Full-parameter fine-tuning or LoRA
-- Distributed across 8×H100 with NVLink
-- Support for sequences up to 65k tokens
-- WandB/TensorBoard monitoring
+**Problem: "pip install failed"**
 
-### 4. Evaluation & Backtesting
+Network issues or missing dependencies.
 
-- Generate predictions on test set
-- Compute classification metrics (accuracy, F1)
-- Calculate financial metrics (hit rate, Sharpe)
-- Simulate portfolio performance
+**Solution:**
+```bash
+# Try with verbose output
+pip install -r requirements_nemo.txt -v
 
-## ⚙️ Configuration
+# Install core packages individually
+pip install nemo-toolkit megatron-core lightning
+```
 
-### Environment Variables (`.env`)
+### Conversion Issues
+
+**Problem: FP8→BF16 conversion OOM**
+
+Insufficient GPU memory (~40GB required).
+
+**Solution:**
+- Use H100 or A100 80GB
+- Close other GPU processes
+- Check: `nvidia-smi`
+
+**Problem: Import to NeMo fails**
+
+Must run with torchrun for multi-GPU.
+
+**Solution:**
+```bash
+torchrun --nproc_per_node=8 scripts/convert/import_to_nemo.py \
+  --bf16-dir checkpoints/bf16/deepseek-v3 \
+  --output checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo
+```
+
+### Training Issues
+
+**Problem: Training OOM**
+
+Model too large for available GPU memory.
+
+**Solutions:**
+1. Reduce sequence length:
+   ```yaml
+   train:
+     seq_length: 32768  # Down from 65536
+   ```
+
+2. Use LoRA instead of full fine-tuning:
+   ```yaml
+   train:
+     peft: lora
+   ```
+
+3. Reduce batch size:
+   ```yaml
+   train:
+     micro_batch_size: 1
+     global_batch_size: 64  # Down from 128
+   ```
+
+**Problem: "CUDA out of memory" during training**
+
+**Solution:**
+```bash
+# Clear GPU memory
+nvidia-smi --gpu-reset
+
+# Check GPU utilization
+nvidia-smi dmon
+```
+
+**Problem: Training is very slow**
+
+**Solutions:**
+1. Enable performance mode:
+   ```yaml
+   train:
+     performance_mode: true
+   ```
+
+2. Use packed sequences:
+   ```yaml
+   dataset:
+     packed_sequence_size: 65536
+   ```
+
+### Evaluation Issues
+
+**Problem: "Dataset file not found"**
+
+Check NeMo JSONL structure.
+
+**Solution:**
+```bash
+# Verify files exist
+ls -lh data/nemo/sft_dataset/
+
+# Check JSON structure
+head -1 data/nemo/sft_dataset/test.jsonl | python -m json.tool
+```
+
+**Problem: Price data API failures**
+
+Rate limiting or invalid API key.
+
+**Solution:**
+```bash
+# Check API key in .env
+grep EODHD_API_KEY .env
+
+# Test API manually
+curl "https://eodhd.com/api/eod/AAPL.US?api_token=YOUR_KEY"
+```
+
+### General
+
+**Problem: Need to start fresh**
+
+Environment corrupted or wants clean install.
+
+**Solution:**
+```bash
+# Remove virtual environment
+rm -rf venv/
+
+# Re-run setup
+INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh
+```
+
+**Problem: Verify patches are working**
+
+After updating NeMo or dependencies.
+
+**Solution:**
+```bash
+source venv/bin/activate
+bash scripts/verify_nemo_fixes.sh
+```
+
+## Advanced Topics
+
+### Monitoring with WandB
 
 ```bash
-# API Keys
-EODHD_API_KEY=your_key
+# Set in .env
+USE_WANDB=true
+WANDB_PROJECT=DeepSeek_Trading
 
-# Date Ranges
-TRAIN_END_DATE=2024-12-31
-TEST_START_DATE=2025-01-01
-
-# Training Backend
-TRAIN_BACKEND=nemo
+# Login
+wandb login
 ```
 
-### NeMo Training Config (`configs/nemo/finetune.yaml`)
+Metrics will be logged to W&B dashboard during training.
+
+### Multi-Node Training
+
+For very large models or datasets:
 
 ```yaml
-recipe:
-  factory: deepseek_v3
-  resume_path: checkpoints/nemo/deepseek-v3-base_tp8_pp1.nemo
-
 train:
-  peft: none               # Full fine-tune
-  seq_length: 65536
-  micro_batch_size: 1
-  global_batch_size: 128
-  num_nodes: 1
+  num_nodes: 2
   gpus_per_node: 8
 ```
 
-## 📈 Expected Performance
+Launch with SLURM or manual coordination across nodes.
 
-- **Action Accuracy:** 60-75%
-- **Hit Rate:** 55-60%
-- **Sharpe Ratio:** 0.5-1.0
+### Custom Data Formats
 
-## 🔧 Hardware Requirements
+To use your own data:
 
-### Development
-- 1×A100/H100 for testing
-- 100 GB disk
+1. Convert to JSONL with fields: `instruction`, `input`, `output`
+2. Run `convert_dataset.py` with your JSONL
+3. Export with `export_nemo_dataset.py`
+4. Train normally
 
-### Production
-- 8×H100 80GB (single node, NVLink)
-- 512 GB RAM
-- 500 GB NVMe storage
+### Reproducibility
 
-## 📚 Documentation
+Every training run creates a manifest with:
+- Git commit hash
+- Full config
+- Data file checksums
+- Environment details
 
-- **[QUICK_START.md](QUICK_START.md)** - Fast onboarding guide
-- **[NEMO_MIGRATION.md](NEMO_MIGRATION.md)** - Migration from TRL to NeMo
-- **[runbook/README.md](runbook/README.md)** - Complete technical documentation
-- **[MODEL_STORAGE_GUIDE.md](MODEL_STORAGE_GUIDE.md)** - Storage requirements and layout
+Located at: `checkpoints/nemo_runs/<run_name>/manifest.json`
 
-## 🛠️ Troubleshooting
+### Full Pipeline Automation
 
-### NeMo Import Fails
-
-Ensure CUDA 12.1+ and compatible PyTorch:
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+# Run entire pipeline (data → train → eval → backtest)
+bash scripts/run_full_pipeline.sh
+
+# With smoke test mode
+bash scripts/run_full_pipeline.sh --smoke-test
+
+# Skip certain stages
+bash scripts/run_full_pipeline.sh --skip-train --skip-eval
 ```
 
-### Training OOM
-
-Reduce sequence length or enable LoRA:
-```yaml
-train:
-  peft: lora
-  seq_length: 32768
-```
-
-### Evaluation Errors
-
-Check that NeMo JSONL files have correct structure:
-```bash
-head -1 data/nemo/sft_dataset/training.jsonl | python3 -m json.tool
-```
-
-## 🤝 Contributing
-
-This pipeline is designed for financial research use. When extending:
-
-1. Maintain time-based split validation
-2. Add tests for new components
-3. Update manifest generation for reproducibility
-4. Document hardware requirements
-
-## 📄 License
-
-See LICENSE files for model and code licensing.
-
-## 🔗 Links
+## Support & Documentation
 
 - **NeMo Framework:** https://github.com/NVIDIA/NeMo
 - **DeepSeek-V3:** https://huggingface.co/deepseek-ai/DeepSeek-V3-Base
-- **Documentation:** https://docs.nvidia.com/nemo-framework/
+- **NeMo Documentation:** https://docs.nvidia.com/nemo-framework/
+- **Technical Details:** See `NEMO_FIXES.md` for patch documentation
 
-## Migration Notes
+## Features
 
-This project was migrated from TRL/Hugging Face to NVIDIA NeMo in October 2025. Legacy scripts are retained but deprecated:
+- ✅ **Native NeMo Integration** - Full DeepSeek-V3 support with Megatron-Core
+- ✅ **Full-Parameter Fine-Tuning** - Train entire 671B model, not just adapters
+- ✅ **Long Context** - Supports up to 131k tokens with efficient attention
+- ✅ **Time-Based Splits** - Prevents data leakage with chronological separation
+- ✅ **Comprehensive Evaluation** - Both NLP and financial metrics
+- ✅ **Portfolio Backtesting** - Realistic simulation with costs and slippage
+- ✅ **Reproducibility** - Complete manifests with git, configs, and checksums
+- ✅ **Automated Setup** - Single command installation with auto-patching
 
-- ❌ `src/train/train_sft.py` → Use `src/train/train_nemo.py`
-- ❌ `src/eval/evaluate_sft.py` → Use `src/eval/evaluate_nemo.py`
-- ❌ `src/data/tokenize_and_shard.py` → Use `src/data/export_nemo_dataset.py`
+## License
 
-See [NEMO_MIGRATION.md](NEMO_MIGRATION.md) for full migration details.
+See LICENSE files for model and code licensing.
