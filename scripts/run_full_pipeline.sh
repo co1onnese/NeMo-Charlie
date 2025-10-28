@@ -1,23 +1,41 @@
 #!/bin/bash
 # run_full_pipeline.sh
 # Complete end-to-end pipeline for SFT training
+#
+# Pipeline Stages:
+#   0. Model Setup (Download & Convert DeepSeek-V3)
+#   1. Data Preparation (XML → JSONL → HF Dataset → NeMo Dataset)
+#   2. Training (NeMo fine-tuning)
+#   3. Evaluation (Model predictions + backtesting)
 
 set -e  # Exit on error
+set -u  # Exit on undefined variable
+set -o pipefail  # Exit on pipe failure
 
 echo "========================================="
 echo "SFT Trading Pipeline - Full Run"
 echo "========================================="
+echo "Start time: $(date)"
+echo ""
 
 # Load environment variables
 if [ -f ".env" ]; then
+    echo "Loading environment variables from .env..."
     export $(cat .env | grep -v '^#' | xargs)
+else
+    echo "Warning: .env file not found. Using defaults."
 fi
 
 # Activate venv
 if [ -d "venv/bin" ]; then
     echo "Activating virtual environment..."
     source venv/bin/activate
+    echo "✓ Virtual environment activated"
+else
+    echo "Warning: venv/bin not found. Make sure dependencies are installed."
 fi
+
+echo ""
 
 # Parse arguments
 SMOKE_TEST=false
@@ -196,13 +214,14 @@ if [ "$SKIP_MODEL_SETUP" = false ]; then
                 # Create parent directory
                 mkdir -p "$(dirname "$MODEL_NEMO_PATH")"
 
+                # Note: For multi-GPU import, use torchrun:
+                # torchrun --nproc_per_node=8 scripts/convert/import_to_nemo.py ...
+                # For now, using single process (slower but works on single GPU)
                 python3 scripts/convert/import_to_nemo.py \
                     --bf16-dir "$MODEL_BF16_DIR" \
                     --output "$MODEL_NEMO_PATH" \
                     --tensor-parallel 8 \
-                    --pipeline-parallel 1 \
-                    --sequence-length 131072 \
-                    --model-name deepseek_v3
+                    --pipeline-parallel 1
 
                 echo "✓ NeMo import complete"
             fi
@@ -229,36 +248,98 @@ if [ "$SKIP_DATA" = false ]; then
     echo "Step 1: Data Preparation"
     echo "========================================="
     
+    # Define data paths
+    RAW_XML_DIR=${RAW_XML_DIR:-data/raw_xml}
+    JSONL_OUTPUT=${JSONL_OUTPUT:-data/jsonl/all.jsonl}
+    HF_DATASET_DIR=${HF_DATASET_DIR:-data/hf_datasets/sft_dataset}
+    NEMO_DATASET_DIR=${NEMO_DATASET_DIR:-data/nemo/sft_dataset}
+    
+    # Create output directories
+    mkdir -p data/jsonl
+    mkdir -p data/hf_datasets
+    mkdir -p data/nemo
+    
+    # 1.0: Unpack raw XML if needed
+    if [ ! -d "$RAW_XML_DIR" ] || [ -z "$(ls -A $RAW_XML_DIR 2>/dev/null)" ]; then
+        if [ -f "data/raw_xml.zip" ]; then
+            echo ""
+            echo "1.0: Unpacking raw XML data..."
+            mkdir -p "$RAW_XML_DIR"
+            unzip -q data/raw_xml.zip -d data/
+            echo "✓ Raw XML data unpacked to $RAW_XML_DIR"
+        else
+            echo "Error: No XML data found!"
+            echo "  - Expected: $RAW_XML_DIR/ (directory with XML files)"
+            echo "  - Or: data/raw_xml.zip (archive to unpack)"
+            echo ""
+            echo "Please place your XML files in $RAW_XML_DIR/ and re-run."
+            exit 1
+        fi
+    else
+        echo ""
+        echo "1.0: Raw XML data already available"
+        echo "     ✓ Found XML files in: $RAW_XML_DIR"
+        XML_COUNT=$(find "$RAW_XML_DIR" -name "*.xml" | wc -l)
+        echo "     ✓ XML file count: $XML_COUNT"
+    fi
+    
     # 1.1: XML to JSONL
     echo ""
     echo "1.1: Converting XML to JSONL..."
-    python3 src/parsers/xml_to_jsonl.py \
-        --input_dir ${RAW_XML_DIR:-data/raw_xml} \
-        --output_file ${JSONL_OUTPUT:-data/jsonl/all.jsonl}
+    if [ ! -f "$JSONL_OUTPUT" ]; then
+        python3 src/parsers/xml_to_jsonl.py \
+            --input_dir "$RAW_XML_DIR" \
+            --output_file "$JSONL_OUTPUT"
+        echo "✓ JSONL created: $JSONL_OUTPUT"
+    else
+        echo "✓ JSONL already exists: $JSONL_OUTPUT"
+        RECORD_COUNT=$(wc -l < "$JSONL_OUTPUT")
+        echo "  Record count: $RECORD_COUNT"
+    fi
     
     # 1.2: JSONL to HF Dataset
     echo ""
     echo "1.2: Creating HuggingFace Dataset..."
-    python3 src/data/convert_dataset.py \
-        --jsonl ${JSONL_OUTPUT:-data/jsonl/all.jsonl} \
-        --out_dir ${HF_DATASET_DIR:-data/hf_datasets/sft_dataset} \
-        --train_end ${TRAIN_END_DATE:-2024-12-31} \
-        --test_start ${TEST_START_DATE:-2025-01-01} \
-        --validation_days ${VALIDATION_DAYS:-30}
+    if [ ! -d "$HF_DATASET_DIR" ] || [ ! -f "$HF_DATASET_DIR/dataset_info.json" ]; then
+        python3 src/data/convert_dataset.py \
+            --jsonl "$JSONL_OUTPUT" \
+            --out_dir "$HF_DATASET_DIR" \
+            --train_end ${TRAIN_END_DATE:-2024-12-31} \
+            --test_start ${TEST_START_DATE:-2025-01-01} \
+            --validation_days ${VALIDATION_DAYS:-30}
+        echo "✓ HuggingFace dataset created: $HF_DATASET_DIR"
+    else
+        echo "✓ HuggingFace dataset already exists: $HF_DATASET_DIR"
+    fi
     
     # 1.3: Export NeMo dataset
     echo ""
     echo "1.3: Exporting NeMo dataset..."
-    python3 src/data/export_nemo_dataset.py \
-        --dataset_dir ${HF_DATASET_DIR:-data/hf_datasets/sft_dataset} \
-        --output_dir ${NEMO_DATASET_DIR:-data/nemo/sft_dataset} \
-        --template ${NEMO_TEMPLATE:-chatml} \
-        --include_metadata
+    if [ ! -d "$NEMO_DATASET_DIR" ] || [ ! -f "$NEMO_DATASET_DIR/training.jsonl" ]; then
+        python3 src/data/export_nemo_dataset.py \
+            --dataset_dir "$HF_DATASET_DIR" \
+            --output_dir "$NEMO_DATASET_DIR" \
+            --template ${NEMO_TEMPLATE:-chatml} \
+            --include_metadata
+        echo "✓ NeMo dataset exported: $NEMO_DATASET_DIR"
+    else
+        echo "✓ NeMo dataset already exists: $NEMO_DATASET_DIR"
+        for split in training validation test; do
+            if [ -f "$NEMO_DATASET_DIR/$split.jsonl" ]; then
+                COUNT=$(wc -l < "$NEMO_DATASET_DIR/$split.jsonl")
+                echo "  - $split.jsonl: $COUNT records"
+            fi
+        done
+    fi
     
     echo ""
     echo "✓ Data preparation complete"
+    echo "  JSONL: $JSONL_OUTPUT"
+    echo "  HF Dataset: $HF_DATASET_DIR"
+    echo "  NeMo Dataset: $NEMO_DATASET_DIR"
 else
     echo "Skipping data preparation (--skip-data)"
+    echo "Note: Training requires NeMo dataset at: ${NEMO_DATASET_DIR:-data/nemo/sft_dataset}"
 fi
 
 # Step 2: Training
@@ -268,18 +349,38 @@ if [ "$SKIP_TRAIN" = false ]; then
     echo "Step 2: SFT Training"
     echo "========================================="
 
-    CONFIG_FILE="configs/nemo/finetune.yaml"
+    CONFIG_FILE=${CONFIG_FILE:-configs/nemo/finetune.yaml}
     OUTPUT_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/latest}
-    mkdir -p "$(dirname "$OUTPUT_DIR")"
+    
+    # Validate config file exists
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "Error: Training config not found: $CONFIG_FILE"
+        exit 1
+    fi
+    
+    # Validate dataset exists
+    NEMO_DATASET_DIR=${NEMO_DATASET_DIR:-data/nemo/sft_dataset}
+    if [ ! -d "$NEMO_DATASET_DIR" ] || [ ! -f "$NEMO_DATASET_DIR/training.jsonl" ]; then
+        echo "Error: NeMo dataset not found at: $NEMO_DATASET_DIR"
+        echo "Please run data preparation first (without --skip-data)"
+        exit 1
+    fi
+    
+    # Create output directory
+    mkdir -p "$OUTPUT_DIR"
+    mkdir -p logs
 
     if [ "$SMOKE_TEST" = true ]; then
-        echo "Running NeMo smoke test..."
+        echo "Running NeMo smoke test (10 steps)..."
         python3 src/train/train_nemo.py \
             --config "$CONFIG_FILE" \
             --output "$OUTPUT_DIR" \
             --smoke-test
     else
-        echo "Running NeMo full training via launcher..."
+        echo "Running NeMo full training..."
+        echo "Config: $CONFIG_FILE"
+        echo "Output: $OUTPUT_DIR"
+        echo ""
         python3 src/train/train_nemo.py \
             --config "$CONFIG_FILE" \
             --output "$OUTPUT_DIR"
@@ -287,37 +388,96 @@ if [ "$SKIP_TRAIN" = false ]; then
 
     echo ""
     echo "✓ Training complete"
+    echo "  Output directory: $OUTPUT_DIR"
+    if [ -f "$OUTPUT_DIR/deepseek_v3_finetune.nemo" ]; then
+        echo "  ✓ Checkpoint: $OUTPUT_DIR/deepseek_v3_finetune.nemo"
+    fi
 else
     echo "Skipping training (--skip-train)"
+    echo "Note: Evaluation requires trained model at: ${OUTPUT_DIR:-checkpoints/nemo_runs/latest}/deepseek_v3_finetune.nemo"
 fi
 
 # Step 3: Evaluation
 if [ "$SKIP_EVAL" = false ]; then
     echo ""
     echo "========================================="
-    echo "Step 3: Evaluation"
+    echo "Step 3: Evaluation & Backtesting"
     echo "========================================="
     
-    MODEL_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/main}
+    OUTPUT_DIR=${OUTPUT_DIR:-checkpoints/nemo_runs/latest}
+    NEMO_DATASET_DIR=${NEMO_DATASET_DIR:-data/nemo/sft_dataset}
+    EVAL_RESULTS_CSV=${EVAL_RESULTS_CSV:-results/eval_results.csv}
+    BACKTEST_CONFIG=${BACKTEST_CONFIG:-configs/backtest_config.yaml}
+    BACKTEST_OUTPUT=${BACKTEST_OUTPUT:-backtests/baseline.csv}
+    
+    # Validate model exists
+    TRAINED_MODEL="$OUTPUT_DIR/deepseek_v3_finetune.nemo"
+    if [ ! -f "$TRAINED_MODEL" ]; then
+        echo "Error: Trained model not found: $TRAINED_MODEL"
+        echo "Please run training first (without --skip-train)"
+        exit 1
+    fi
+    
+    # Validate dataset exists
+    if [ ! -d "$NEMO_DATASET_DIR" ]; then
+        echo "Error: NeMo dataset not found: $NEMO_DATASET_DIR"
+        echo "Please run data preparation first (without --skip-data)"
+        exit 1
+    fi
+    
+    # Create output directories
+    mkdir -p results
+    mkdir -p backtests
     
     # 3.1: Model evaluation
     echo ""
     echo "3.1: Evaluating model predictions..."
+    echo "Model: $TRAINED_MODEL"
+    echo "Dataset: $NEMO_DATASET_DIR"
+    echo "Output: $EVAL_RESULTS_CSV"
+    echo ""
+    
     python3 src/eval/evaluate_nemo.py \
-        --model ${MODEL_DIR}/deepseek_v3_finetune.nemo \
-        --dataset ${NEMO_DATASET_DIR:-data/nemo/sft_dataset} \
-        --results ${EVAL_RESULTS_CSV:-results/eval_results.csv}
+        --model "$TRAINED_MODEL" \
+        --dataset "$NEMO_DATASET_DIR" \
+        --results "$EVAL_RESULTS_CSV" \
+        --split ${EVAL_SPLIT:-test}
+    
+    echo "✓ Evaluation complete: $EVAL_RESULTS_CSV"
+    
+    # Check if metrics JSON was created
+    if [ -f "${EVAL_RESULTS_CSV}.metrics.json" ]; then
+        echo "✓ Metrics saved: ${EVAL_RESULTS_CSV}.metrics.json"
+    fi
     
     # 3.2: Backtest
     echo ""
     echo "3.2: Running backtest simulation..."
+    echo "Evaluation results: $EVAL_RESULTS_CSV"
+    echo "Config: $BACKTEST_CONFIG"
+    echo "Output: $BACKTEST_OUTPUT"
+    echo ""
+    
+    if [ ! -f "$BACKTEST_CONFIG" ]; then
+        echo "Error: Backtest config not found: $BACKTEST_CONFIG"
+        exit 1
+    fi
+    
+    # Note: Using --eval_csv because results are in CSV format
     python3 src/backtest/trading_backtest.py \
-        --eval_jsonl ${EVAL_RESULTS_CSV:-results/eval_results.csv} \
-        --config configs/backtest_config.yaml \
-        --out backtests/baseline.csv
+        --eval_csv "$EVAL_RESULTS_CSV" \
+        --config "$BACKTEST_CONFIG" \
+        --out "$BACKTEST_OUTPUT"
+    
+    echo "✓ Backtest complete: $BACKTEST_OUTPUT"
+    
+    # Check if backtest metrics JSON was created
+    if [ -f "${BACKTEST_OUTPUT%.*}_metrics.json" ]; then
+        echo "✓ Backtest metrics: ${BACKTEST_OUTPUT%.*}_metrics.json"
+    fi
     
     echo ""
-    echo "✓ Evaluation complete"
+    echo "✓ Evaluation & backtesting complete"
 else
     echo "Skipping evaluation (--skip-eval)"
 fi
@@ -327,14 +487,43 @@ echo ""
 echo "========================================="
 echo "Pipeline Complete!"
 echo "========================================="
-echo "Model Setup:"
-echo "  - Base Model: ${MODEL_NEMO_PATH:-/data/models/deepseek-v3-base_tp8_pp1.nemo}"
+echo "End time: $(date)"
 echo ""
-echo "Results:"
-echo "  - Fine-tuned Model: ${OUTPUT_DIR:-checkpoints/nemo_runs/main}/deepseek_v3_finetune.nemo"
-echo "  - Evaluation: ${EVAL_RESULTS_CSV:-results/eval_results.csv}"
-echo "  - Backtest: backtests/baseline.csv"
-echo "  - Metrics: results/eval_results.csv.metrics.json"
+
+if [ "$SKIP_MODEL_SETUP" = false ]; then
+    echo "Model Setup:"
+    echo "  - Base Model: ${MODEL_NEMO_PATH:-/data/models/deepseek-v3-base_tp8_pp1.nemo}"
+    echo ""
+fi
+
+if [ "$SKIP_DATA" = false ]; then
+    echo "Data:"
+    echo "  - JSONL: ${JSONL_OUTPUT:-data/jsonl/all.jsonl}"
+    echo "  - HF Dataset: ${HF_DATASET_DIR:-data/hf_datasets/sft_dataset}"
+    echo "  - NeMo Dataset: ${NEMO_DATASET_DIR:-data/nemo/sft_dataset}"
+    echo ""
+fi
+
+if [ "$SKIP_TRAIN" = false ]; then
+    echo "Training:"
+    echo "  - Output Dir: ${OUTPUT_DIR:-checkpoints/nemo_runs/latest}"
+    echo "  - Checkpoint: ${OUTPUT_DIR:-checkpoints/nemo_runs/latest}/deepseek_v3_finetune.nemo"
+    echo ""
+fi
+
+if [ "$SKIP_EVAL" = false ]; then
+    echo "Evaluation:"
+    echo "  - Results: ${EVAL_RESULTS_CSV:-results/eval_results.csv}"
+    echo "  - Backtest: ${BACKTEST_OUTPUT:-backtests/baseline.csv}"
+    if [ -f "${EVAL_RESULTS_CSV:-results/eval_results.csv}.metrics.json" ]; then
+        echo "  - Metrics: ${EVAL_RESULTS_CSV:-results/eval_results.csv}.metrics.json"
+    fi
+    echo ""
+fi
+
+echo "Logs: ${LOG_DIR:-logs}/"
 echo ""
-echo "Check logs in: ${LOG_DIR:-logs}/"
+echo "========================================="
+echo "All stages completed successfully!"
+echo "========================================="
 echo ""
