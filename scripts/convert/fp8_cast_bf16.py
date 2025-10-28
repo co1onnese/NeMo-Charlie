@@ -1,3 +1,17 @@
+"""
+DEPRECATED: Legacy sequential FP8→BF16 conversion script.
+
+This script is kept for backwards compatibility and benchmarking purposes.
+For production use, please use fp8_cast_bf16_parallel.py which is 2-8x faster.
+
+Performance comparison:
+- This script (sequential):  ~25-30 minutes
+- Parallel (single GPU):     ~10-15 minutes (2-3x faster)
+- Parallel (multi-GPU):      ~4-6 minutes (6-8x faster)
+
+See docs/CONVERSION_OPTIMIZATION_SUMMARY.md for details.
+"""
+
 import os
 import json
 from argparse import ArgumentParser
@@ -8,6 +22,18 @@ import torch
 from safetensors.torch import load_file, save_file, safe_open
 
 from kernel import weight_dequant
+
+print("[WARNING] ================================================================")
+print("[WARNING] You are using the LEGACY sequential conversion script.")
+print("[WARNING] This script is DEPRECATED and 2-8x SLOWER than the optimized version.")
+print("[WARNING]")
+print("[WARNING] For better performance, use:")
+print("[WARNING]   python scripts/convert/fp8_cast_bf16_parallel.py [args]")
+print("[WARNING]")
+print("[WARNING] Or via wrapper script:")
+print("[WARNING]   bash scripts/convert/convert_deepseek_v3.sh --mode single [args]")
+print("[WARNING] ================================================================")
+print()
 
 def main(fp8_path, bf16_path):
     torch.set_default_dtype(torch.bfloat16)

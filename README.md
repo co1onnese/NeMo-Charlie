@@ -4,8 +4,9 @@ A production-grade supervised fine-tuning pipeline for training DeepSeek-V3 mode
 
 ## Table of Contents
 
+- [Quick Start (Fresh Server)](#quick-start-fresh-server)
 - [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
+- [Installation](#installation)
 - [Model Conversion](#model-conversion)
 - [Data Preparation](#data-preparation)
 - [Training](#training)
@@ -15,6 +16,73 @@ A production-grade supervised fine-tuning pipeline for training DeepSeek-V3 mode
 - [Troubleshooting](#troubleshooting)
 - [Advanced Topics](#advanced-topics)
 
+## Quick Start (Fresh Server)
+
+**One-command setup that just works:**
+
+```bash
+# 1. Clone and navigate
+cd /opt
+git clone https://github.com/yourorg/NeMo-Charlie.git
+cd NeMo-Charlie
+
+# 2. Configure
+cp .env.example .env
+nano .env  # Set CPU_ONLY_MODE=true (dev) or false (GPU server)
+
+# 3. Run setup (fully automated, 10-15 minutes)
+bash scripts/setup_env_v2.sh
+
+# 4. Activate and start working
+source venv/bin/activate
+python scripts/convert/import_to_nemo.py --help
+```
+
+**That's it!** Setup includes:
+- ✅ Virtual environment creation
+- ✅ PyTorch installation (CPU or GPU+CUDA 12.8)
+- ✅ Optimal dependency installation order
+- ✅ NeMo Framework with automatic patching
+- ✅ Comprehensive validation
+- ✅ **Minimal warnings** (only expected "NeMo-Run" warning)
+
+### Expected Results
+
+**CPU Mode** (`CPU_ONLY_MODE=true`):
+```
+✓ PyTorch 2.9.0 (CPU)
+✓ Zarr 2.x (checkpoint format support)
+✓ NeMo 2.5.2 (patched)
+✓ All dependencies installed
+
+⚠️ Expected warning: "NeMo-Run is not installed" (harmless, confirms patches work)
+✅ Time: ~5-10 minutes
+```
+
+**GPU Mode** (`CPU_ONLY_MODE=false`):
+```
+✓ PyTorch 2.9.0+cu128 (GPU)
+✓ Zarr 2.x
+✓ Transformer Engine (20-40% faster training!)
+✓ NeMo 2.5.2 (patched)
+✓ All dependencies installed
+
+⚠️ Expected warning: "NeMo-Run is not installed" (harmless, confirms patches work)
+✅ Time: ~10-15 minutes
+```
+
+### What Gets Installed
+
+The setup script installs dependencies in **optimal order** to minimize warnings:
+
+1. **PyTorch** (foundation)
+2. **zarr 2.x** - installed **BEFORE** NeMo (eliminates "Cannot import zarr" warning)
+3. **transformer-engine** - installed **BEFORE** NeMo, GPU only (eliminates "transformer_engine" warning)
+4. **Base requirements** (transformers, datasets, pandas, etc.)
+5. **NeMo Framework** (detects already-installed optional deps)
+6. **Automatic patches** (handles nemo_run gracefully)
+7. **Validation** (comprehensive environment check)
+
 ## Prerequisites
 
 ### Hardware
@@ -23,7 +91,7 @@ A production-grade supervised fine-tuning pipeline for training DeepSeek-V3 mode
 - CPU: 8+ cores
 - RAM: 32 GB
 - Disk: 100 GB
-- GPU: Optional (1×A100/H100 for testing)
+- GPU: Optional (for faster operations)
 
 **Production (Full Training):**
 - GPUs: **8×H100 80GB** with NVLink (single node)
@@ -33,63 +101,149 @@ A production-grade supervised fine-tuning pipeline for training DeepSeek-V3 mode
 
 ### Software
 
-- **OS:** Linux (Ubuntu 20.04+ recommended)
-- **Python:** 3.8+ (3.10 or 3.12 recommended)
+- **OS:** Ubuntu 20.04+ (tested on 22.04)
+- **Python:** 3.12 (3.10+ supported)
 - **Git:** For cloning repository
-- **CUDA Toolkit:** 12.4+ (for GPU training)
+- **CUDA Toolkit:** 12.x (for GPU mode)
 
-## Quick Start
-
-### 1. Installation
-
-Clone the repository and run the automated setup script:
+### Before You Start
 
 ```bash
-# Clone repository
-git clone https://github.com/co1onnese/NeMo-Charlie.git
-cd NeMo-Charlie
+# Ubuntu/Debian - Install system dependencies
+sudo apt-get update
+sudo apt-get install -y \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    git \
+    build-essential
 
-# Run comprehensive setup (installs everything + applies patches)
-INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh
+# For GPU mode - verify CUDA is installed
+nvidia-smi  # Should show CUDA 12.x
 ```
 
-**This single command:**
-1. ✅ Creates Python virtual environment
-2. ✅ Installs PyTorch with CUDA 12.4 support
-3. ✅ Installs all dependencies
-4. ✅ Installs NeMo Framework
-5. ✅ Automatically applies NeMo patches
-6. ✅ Verifies everything works
+## Installation
 
-**Time:** ~10-15 minutes
-
-### 2. Activate Environment
-
-Every time you start a new terminal session:
+### Step 1: Clone Repository
 
 ```bash
+cd /opt
+git clone https://github.com/yourorg/NeMo-Charlie.git
 cd NeMo-Charlie
-source venv/bin/activate
 ```
 
-### 3. Configure Environment
+### Step 2: Configure Environment
 
 ```bash
 # Copy example config
 cp .env.example .env
 
-# Edit with your settings
+# Edit .env with your settings
 nano .env
 ```
 
-Set these variables:
+**Critical setting in `.env`:**
 ```bash
-# API Keys
-EODHD_API_KEY=your_api_key
+# For CPU-only development/testing
+CPU_ONLY_MODE=true
 
-# Date Ranges
+# For GPU training (requires CUDA 12.x)
+CPU_ONLY_MODE=false
+```
+
+**Other important settings:**
+```bash
+# API key for price data (optional)
+EODHD_API_KEY=your_key_here
+
+# Date ranges for train/test splits
 TRAIN_END_DATE=2024-12-31
 TEST_START_DATE=2025-01-01
+```
+
+### Step 3: Run Setup
+
+```bash
+bash scripts/setup_env_v2.sh
+```
+
+**What happens:**
+1. Checks Python 3.12+ and prerequisites
+2. Reads `CPU_ONLY_MODE` from `.env`
+3. Verifies CUDA (if GPU mode)
+4. **Fails if `venv/` exists** (ensures clean install)
+5. Creates virtual environment
+6. Installs PyTorch (CPU or GPU+cu128)
+7. **Installs zarr 2.x BEFORE NeMo** (key optimization!)
+8. Installs transformer-engine (GPU mode only)
+9. Installs all base requirements
+10. Installs NeMo Framework
+11. Applies patches automatically
+12. **Runs comprehensive validation**
+
+**Time:** 5-10 minutes (CPU), 10-15 minutes (GPU)
+
+**Fully automated** - no prompts, no interaction needed!
+
+### Step 4: Activate Environment
+
+```bash
+source venv/bin/activate
+```
+
+**You're ready to go!** The validation already ran during setup.
+
+### Troubleshooting Setup
+
+**Problem: "venv/ already exists"**
+```bash
+rm -rf venv/
+bash scripts/setup_env_v2.sh
+```
+
+**Problem: ".env file not found"**
+```bash
+cp .env.example .env
+# Edit and set CPU_ONLY_MODE
+bash scripts/setup_env_v2.sh
+```
+
+**Problem: "CUDA not found" (GPU mode)**
+```bash
+# Either install CUDA 12.x, or switch to CPU mode
+nano .env  # Set CPU_ONLY_MODE=true
+bash scripts/setup_env_v2.sh
+```
+
+**Problem: "Python 3.12 not found"**
+```bash
+# Ubuntu 22.04+
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.12 python3.12-venv python3.12-dev
+```
+
+### Migrating Between Environments
+
+**From Dev (CPU) to Production (GPU):**
+```bash
+# On GPU server
+cd /opt/NeMo-Charlie
+
+# Update .env
+sed -i 's/CPU_ONLY_MODE=true/CPU_ONLY_MODE=false/' .env
+
+# Clean reinstall
+rm -rf venv/
+bash scripts/setup_env_v2.sh
+```
+
+### Manual Validation
+
+If you want to re-run validation later:
+```bash
+source venv/bin/activate
+python scripts/validate_environment.py
 ```
 
 ## Model Conversion
@@ -113,11 +267,25 @@ bash scripts/convert/convert_deepseek_v3.sh \
   --output checkpoints/bf16/deepseek-v3
 ```
 
-This uses Triton kernels for efficient tensor conversion.
+The script automatically selects the best conversion mode based on your hardware:
+- **Multi-GPU mode** (8 GPUs): ~4-6 minutes
+- **Single-GPU mode** (1 GPU): ~10-15 minutes
+- Uses Triton kernels for efficient FP8 dequantization
+- Optimized with async I/O and parallel processing
 
 **Requirements:**
-- ~40GB GPU memory
-- ~20-30 minutes on H100
+- ~40GB GPU memory per GPU
+- For multi-GPU: Requires 4+ GPUs and `torchrun`
+
+**Advanced options:**
+```bash
+# Force specific mode
+CONVERSION_MODE=multi ./convert_deepseek_v3.sh --source ... --output ...
+# Modes: auto (default), single, multi
+
+# Adjust I/O workers for performance tuning
+./convert_deepseek_v3.sh --source ... --output ... --max-workers 16
+```
 
 ### Step 3: Import to NeMo
 
@@ -354,11 +522,14 @@ train:
 
 ### Environment Variables
 
-Create `.env` file:
+Key settings in `.env`:
 
 ```bash
-# Required
-EODHD_API_KEY=your_key_here
+# Hardware mode (CRITICAL)
+CPU_ONLY_MODE=false          # true for dev, false for GPU training
+
+# API keys
+EODHD_API_KEY=your_key_here  # For price data (optional)
 
 # Date configuration
 TRAIN_END_DATE=2024-12-31
@@ -412,10 +583,10 @@ NeMo-Charlie/
 │       └── validation.py          # Data validation
 │
 ├── scripts/
-│   ├── setup_env.sh               # Environment setup
+│   ├── setup_env_v2.sh            # ONE-COMMAND SETUP ⭐
+│   ├── validate_environment.py    # Validation (auto-run by setup)
 │   ├── run_full_pipeline.sh       # Full pipeline automation
-│   ├── apply_nemo_patches.py      # NeMo patching (auto)
-│   ├── verify_nemo_fixes.sh       # Verify patches
+│   ├── apply_nemo_patches.py      # NeMo patching (auto-run)
 │   └── convert/
 │       ├── convert_deepseek_v3.sh # FP8→BF16 wrapper
 │       ├── fp8_cast_bf16.py       # FP8→BF16 conversion
@@ -431,38 +602,43 @@ NeMo-Charlie/
 
 ## Troubleshooting
 
-### Setup Issues
+### Environment Issues
+
+**Problem: Warnings about missing packages**
+
+Check which warnings you see:
+
+✅ **"NeMo-Run is not installed"** → Expected and harmless! This confirms patches are working. nemo_run doesn't exist on public PyPI.
+
+❌ **"Cannot import zarr"** → Should NOT appear with setup_env_v2.sh. If you see this:
+```bash
+source venv/bin/activate
+pip show zarr  # Check version (should be 2.x not 3.x)
+pip uninstall zarr && pip install "zarr>=2.16.0,<3.0.0"
+```
+
+❌ **"transformer_engine not installed"** in GPU mode → Should NOT appear. Check:
+```bash
+pip show transformer-engine
+# If missing:
+pip install transformer-engine[pytorch]
+```
+
+✅ **"transformer_engine not installed"** in CPU mode → Expected and harmless!
 
 **Problem: "No module named 'nv_one_logger'"**
 
-NeMo patches weren't applied.
-
-**Solution:**
+Patches weren't applied. Should not happen with setup_env_v2.sh, but if it does:
 ```bash
 source venv/bin/activate
 python scripts/apply_nemo_patches.py
+bash scripts/verify_nemo_fixes.sh
 ```
 
-**Problem: Setup script hangs**
-
-Large downloads (~2GB PyTorch, ~1GB NeMo).
-
-**Solution:**
-- Be patient, monitor with `htop`
-- Check disk space: `df -h`
-- Check network: `ping pypi.org`
-
-**Problem: "pip install failed"**
-
-Network issues or missing dependencies.
-
-**Solution:**
+**Problem: Need to start fresh**
 ```bash
-# Try with verbose output
-pip install -r requirements_nemo.txt -v
-
-# Install core packages individually
-pip install nemo-toolkit megatron-core lightning
+rm -rf venv/
+bash scripts/setup_env_v2.sh
 ```
 
 ### Conversion Issues
@@ -567,31 +743,6 @@ grep EODHD_API_KEY .env
 curl "https://eodhd.com/api/eod/AAPL.US?api_token=YOUR_KEY"
 ```
 
-### General
-
-**Problem: Need to start fresh**
-
-Environment corrupted or wants clean install.
-
-**Solution:**
-```bash
-# Remove virtual environment
-rm -rf venv/
-
-# Re-run setup
-INSTALL_NEMO=true INSTALL_GPU_TORCH=true bash scripts/setup_env.sh
-```
-
-**Problem: Verify patches are working**
-
-After updating NeMo or dependencies.
-
-**Solution:**
-```bash
-source venv/bin/activate
-bash scripts/verify_nemo_fixes.sh
-```
-
 ## Advanced Topics
 
 ### Monitoring with WandB
@@ -651,15 +802,51 @@ bash scripts/run_full_pipeline.sh --smoke-test
 bash scripts/run_full_pipeline.sh --skip-train --skip-eval
 ```
 
+## Technical Details
+
+### Why Installation Order Matters
+
+NeMo checks for optional packages **at import time**. If you install them after NeMo, warnings appear even though they're present. Our setup script installs:
+
+1. PyTorch (foundation)
+2. **zarr 2.x** - BEFORE NeMo (eliminates warning)
+3. **transformer-engine** - BEFORE NeMo, GPU only (eliminates warning)
+4. NeMo (detects already-installed packages)
+
+### Why zarr < 3.0.0
+
+NeMo 2.5.2 uses `zarr.storage.BaseStore` which only exists in zarr 2.x. Version 3.x has breaking API changes.
+
+### About the NeMo-Run Warning
+
+The "NeMo-Run is not installed" warning **confirms your patches are working correctly**. It's expected and harmless because:
+- `nemo_run` doesn't exist on public PyPI (internal NVIDIA tool)
+- Patches make it optional with graceful fallback
+- All core functionality works without it
+
+If you don't see this warning, patches may not be applied.
+
+### About the Patches
+
+NeMo 2.5.2 has hardcoded imports for optional dependencies:
+- `nv_one_logger` (telemetry - not on PyPI)
+- `nemo_run` (recipes - not on PyPI)
+- `tensorstore` (export - optional)
+
+Our patches (`apply_nemo_patches.py`) make these imports conditional with graceful fallbacks. See `NEMO_FIXES.md` for detailed patch documentation.
+
 ## Support & Documentation
 
 - **NeMo Framework:** https://github.com/NVIDIA/NeMo
 - **DeepSeek-V3:** https://huggingface.co/deepseek-ai/DeepSeek-V3-Base
 - **NeMo Documentation:** https://docs.nvidia.com/nemo-framework/
-- **Technical Details:** See `NEMO_FIXES.md` for patch documentation
+- **Patch Details:** See `NEMO_FIXES.md` in this repository
 
 ## Features
 
+- ✅ **One-Command Setup** - Fully automated installation with validation
+- ✅ **Minimal Warnings** - Optimal installation order eliminates unnecessary warnings
+- ✅ **Configuration-Driven** - CPU vs GPU mode via `.env`
 - ✅ **Native NeMo Integration** - Full DeepSeek-V3 support with Megatron-Core
 - ✅ **Full-Parameter Fine-Tuning** - Train entire 671B model, not just adapters
 - ✅ **Long Context** - Supports up to 131k tokens with efficient attention
@@ -667,7 +854,7 @@ bash scripts/run_full_pipeline.sh --skip-train --skip-eval
 - ✅ **Comprehensive Evaluation** - Both NLP and financial metrics
 - ✅ **Portfolio Backtesting** - Realistic simulation with costs and slippage
 - ✅ **Reproducibility** - Complete manifests with git, configs, and checksums
-- ✅ **Automated Setup** - Single command installation with auto-patching
+- ✅ **Comprehensive Validation** - Automatic environment verification
 
 ## License
 

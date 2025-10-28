@@ -1,0 +1,112 @@
+# Optional Performance and Format Support Packages for NeMo-Charlie
+# 
+# These packages provide additional functionality and performance optimizations
+# but are NOT required for core pipeline functionality.
+#
+# Installation:
+#   source venv/bin/activate
+#   pip install -r requirements_optional.txt
+#
+# Note: Some packages require CUDA runtime and may need compilation.
+
+# ============================================================================
+# Checkpoint Format Support (Recommended, No Compilation)
+# ============================================================================
+
+# Zarr checkpoint format support
+# Eliminates: "Cannot import zarr" warning
+# Risk: None (pure Python)
+# Install time: ~5 seconds
+# Note: NeMo 2.5.2 requires zarr 2.x (not 3.x)
+zarr>=2.16.0,<3.0.0
+
+# ============================================================================
+# Performance Optimizations (Require CUDA Runtime)
+# ============================================================================
+
+# Transformer Engine - Fused kernels for attention, layer norm, MLP
+# Eliminates: "transformer_engine not installed" warning
+# Benefit: 20-40% faster training/inference, 10-20% lower GPU memory
+# Requirements: CUDA 12.x runtime, ~500MB download
+# Install time: ~1-2 minutes (prebuilt wheel) or ~10-20 minutes (source)
+# Uncomment if CUDA runtime available:
+# transformer-engine[pytorch]>=1.12.0
+
+# Flash Attention 2 - Memory-efficient attention
+# Benefit: Lower memory usage for long sequences, faster attention
+# Requirements: CUDA 11.6+, requires compilation
+# Install time: ~10-30 minutes
+# Uncomment if CUDA available and willing to compile:
+# flash-attn>=2.5.0
+
+# ============================================================================
+# Advanced/Experimental (Usually Not Needed)
+# ============================================================================
+
+# Mamba SSM - State space models for sequence modeling
+# Requirements: C++17 compiler, CUDA (optional)
+# Install time: ~5-15 minutes (compilation)
+# Uncomment only if explicitly using SSM architectures:
+# mamba-ssm
+
+# NVIDIA Apex - Mixed precision and distributed training utilities
+# Note: Most apex functionality is now integrated into PyTorch
+# Uncomment only if explicitly required by specific NeMo features:
+# -f https://download.pytorch.org/whl/torch_stable.html
+# apex
+
+# ============================================================================
+# Installation Guide
+# ============================================================================
+
+# Minimal (CPU development, eliminates zarr warning only):
+#   pip install zarr>=2.16.0
+
+# Recommended (GPU training, with transformer_engine):
+#   pip install zarr>=2.16.0
+#   pip install transformer-engine[pytorch]>=1.12.0
+
+# Maximum performance (GPU training, all optimizations):
+#   pip install zarr>=2.16.0
+#   pip install transformer-engine[pytorch]>=1.12.0
+#   pip install flash-attn>=2.5.0 --no-build-isolation
+
+# ============================================================================
+# Verification After Installation
+# ============================================================================
+
+# Test zarr:
+#   python -c "import zarr; print(f'✓ Zarr {zarr.__version__}')"
+
+# Test transformer_engine:
+#   python -c "import transformer_engine; print('✓ Transformer Engine')"
+
+# Test flash_attn:
+#   python -c "import flash_attn; print('✓ Flash Attention')"
+
+# Full environment check:
+#   bash scripts/verify_nemo_fixes.sh
+#   python scripts/validate_environment.py  # See below
+
+# ============================================================================
+# Troubleshooting
+# ============================================================================
+
+# If transformer_engine fails to install:
+# 1. Verify CUDA runtime: nvidia-smi
+# 2. Check PyTorch CUDA version: python -c "import torch; print(torch.version.cuda)"
+# 3. Try building from source: 
+#    git clone https://github.com/NVIDIA/TransformerEngine.git
+#    cd TransformerEngine && git checkout stable
+#    export NVTE_FRAMEWORK=pytorch
+#    pip install .
+
+# If flash-attn fails to compile:
+# 1. Ensure CUDA toolkit installed: nvcc --version
+# 2. Ensure sufficient disk space (~5GB during compilation)
+# 3. Install with: MAX_JOBS=4 pip install flash-attn --no-build-isolation
+# 4. Or skip: flash-attn is optional for most workloads
+
+# To remove any optional package:
+#   pip uninstall [package-name]
+#   bash scripts/verify_nemo_fixes.sh  # Verify core still works
