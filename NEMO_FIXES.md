@@ -154,20 +154,23 @@ WARNING: Cannot import zarr, support for zarr-based checkpoints is not available
 
 These warnings are **expected** and **harmless** - they indicate optional features are unavailable, but core functionality works.
 
-## Applying the Fix
+## Current Status
 
-### Automatic Method (Recommended)
+**✓ PATCHES ALREADY APPLIED** in this environment!
 
+The NeMo installation in `venv/` has been patched and is working correctly.
+
+To verify patches are applied and working:
 ```bash
 source venv/bin/activate
-bash scripts/fix_nemo_optional_deps.sh
+bash scripts/verify_nemo_fixes.sh
 ```
 
-This script:
-- Creates backups of original files
-- Applies all patches automatically
-- Tests that the fix worked
-- Provides rollback instructions
+See `scripts/PATCHES_APPLIED.txt` for details.
+
+## Applying the Fix (When Needed)
+
+You only need to apply patches if you reinstall NeMo or create a new virtual environment.
 
 ### Manual Method
 
